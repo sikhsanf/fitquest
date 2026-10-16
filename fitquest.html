@@ -97,6 +97,12 @@ h3.q{text-align:center;font-size:17px;margin:4px 8px 16px;line-height:1.35}
 .hud #hudTime,.hud #hudName{display:none}.hud #hudTime{font-size:34px}
 .cam.full{position:fixed;inset:0;z-index:20;width:100vw;height:100dvh;aspect-ratio:auto;margin:0;box-shadow:none}.cam.full .mirror video,.cam.full .mirror canvas{object-fit:contain}.cam.full .hud #hudTime{display:inline}.cam.full .hud{flex-wrap:wrap;gap:4px}.cam.full .hud #hudName{display:block;width:100%;order:3;text-align:center;font-size:15px;letter-spacing:1px}.cam.full .fsbtn{top:calc(env(safe-area-inset-top,0px) + 8px)}
 .restbox{margin:10px 4px 6px}.restbox input[type=range]{width:100%}
+.mttiles{position:absolute;top:calc(env(safe-area-inset-top,0px) + 8px);left:8px;right:8px;display:flex;gap:6px;z-index:3}
+.mt-tile{flex:1;background:rgba(0,0,0,.62);color:#fff;text-align:center;padding:6px 2px;font-size:10px;letter-spacing:1px;transition:background .1s}.mt-tile b{display:block;font-size:22px}.mt-tile i{display:block;font-style:normal;font-size:22px;font-weight:800}.mt-tile.hit{background:var(--acc);color:#1a1200}
+.mtwalk{position:absolute;top:calc(env(safe-area-inset-top,0px) + 96px);left:8px;right:8px;height:8px;background:rgba(0,0,0,.55);z-index:3}.mtwalk i{display:block;height:100%;width:0;background:var(--acc2);transition:width .15s}
+.mtmsg{position:absolute;left:8px;right:8px;bottom:130px;text-align:center;font-size:14px;font-weight:700;padding:8px 10px;background:rgba(0,0,0,.65);color:#fff;z-index:3}
+.mtdbg{position:absolute;left:8px;right:8px;top:calc(env(safe-area-inset-top,0px) + 112px);margin:0;font-size:11px;color:#c6f432;background:rgba(0,0,0,.6);padding:6px;white-space:pre-wrap;z-index:3}
+.mtctl{position:absolute;left:8px;right:8px;bottom:calc(env(safe-area-inset-bottom,0px) + 8px);background:rgba(0,0,0,.7);padding:8px 10px;z-index:3;color:#fff;font-size:13px}.mtctl input[type=range]{width:100%}.mtbtns{display:flex;gap:6px;margin-top:6px}.mtbtns .btn{flex:1}
 .mirror{position:absolute;inset:0;transform:scaleX(-1)}.mirror video,.mirror canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .hud{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;font-weight:800;font-size:20px;text-shadow:0 2px 0 #000}
 .form{font-size:14px;padding:3px 10px;background:rgba(0,0,0,.6);color:var(--c,#fff)}
@@ -1695,6 +1701,130 @@ window.FIT_DATA = {
 
 </script>
 <script>
+/* FitQuest — motion controller: turns MediaPipe pose frames into game inputs (walk-in-place, punch, swing, kick).
+   Pure logic, no DOM. Works in WORLD landmarks (metres, hip-centred) so it does not depend on how far the phone is.
+   Frame: { img:[33 {x,y,z,visibility}], world:[33 {x,y,z}], w, h }.  y points DOWN, x to the right of the image. */
+(function (root) {
+  'use strict';
+  const I = { lsh: 11, rsh: 12, lel: 13, rel: 14, lwr: 15, rwr: 16, lhip: 23, rhip: 24, lkn: 25, rkn: 26, lan: 27, ran: 28 };
+  const D2R = Math.PI / 180;
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const vis = (f, i) => { const p = f.img && f.img[i]; return !!p && (p.visibility === undefined || p.visibility >= 0.45); };
+  const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+  function angle3(a, b, c) {
+    const v1 = [a.x - b.x, a.y - b.y, a.z - b.z], v2 = [c.x - b.x, c.y - b.y, c.z - b.z], n = Math.hypot(...v1) * Math.hypot(...v2);
+    return n ? Math.acos(clamp((v1[0] * v2[0] + v1[1] * v2[1] + v1[2] * v2[2]) / n, -1, 1)) / D2R : 180;
+  }
+  const wrapA = (a) => { while (a > Math.PI) a -= 2 * Math.PI; while (a < -Math.PI) a += 2 * Math.PI; return a; };
+
+  /* tunables (distances in torso lengths T, times in seconds). `sens` > 1 = more sensitive. */
+  const TUNE = {
+    stepUp: 0.2, stepDown: 0.08, ankleUp: 0.32, stepRefr: 0.18, walkHold: 0.9,
+    kickRise: 0.9, kickAngle: 135, kickRefr: 0.6,
+    punchExtHi: 0.86, punchExtLo: 0.68, punchWin: 0.38, punchRefr: 0.32, punchYLo: -0.85, punchYHi: 0.55,
+    swingAng: 95, swingWin: 0.32, swingRefr: 0.45, swingMinR: 0.5, swingMaxExt: 0.3,
+  };
+
+  function create(opts) {
+    opts = opts || {};
+    let sens = opts.sens || 1;
+    const hist = { l: [], r: [] };
+    let S;
+    function reset() {
+      S = { t: 0, counts: { step: 0, punch: 0, swing: 0, kick: 0 }, steps: [], legUp: { l: false, r: false }, lastStep: { l: -9, r: -9 }, kickArmed: { l: true, r: true }, lastKick: -9,
+        lastPunch: { l: -9, r: -9 }, lastSwing: { l: -9, r: -9 }, swingDir: { l: null, r: null }, stand: { thigh: null, T: null }, ok: false };
+      hist.l.length = 0; hist.r.length = 0;
+    }
+    reset();
+
+    function update(f, t) {
+      const ev = [], dbg = {};
+      S.t = t;
+      const need = ['lsh', 'rsh', 'lhip', 'rhip'];
+      if (!f || !f.world || !need.every((n) => vis(f, I[n]))) { S.ok = false; return { ok: false, events: ev, walking: false, speed: 0, counts: S.counts, debug: dbg }; }
+      S.ok = true;
+      const W = (n) => f.world[I[n]];
+      const shM = { x: (W('lsh').x + W('rsh').x) / 2, y: (W('lsh').y + W('rsh').y) / 2, z: (W('lsh').z + W('rsh').z) / 2 };
+      const hpM = { x: (W('lhip').x + W('rhip').x) / 2, y: (W('lhip').y + W('rhip').y) / 2, z: (W('lhip').z + W('rhip').z) / 2 };
+      const T = Math.max(0.25, d3(shM, hpM)); // torso length, metres
+      S.stand.T = S.stand.T == null ? T : S.stand.T + 0.03 * (T - S.stand.T);
+      const th = (s) => d3(W(s + 'hip'), W(s + 'kn'));
+
+      // ---------------- legs: steps + kick ----------------
+      const lift = {}, ank = {}, kang = {};
+      for (const s of ['l', 'r']) {
+        const o = s === 'l' ? 'r' : 'l';
+        if (!(vis(f, I[s + 'hip']) && vis(f, I[s + 'kn']))) { lift[s] = 0; continue; }
+        const thigh = Math.max(0.2, S.stand.thigh == null ? th(s) : S.stand.thigh);
+        // knee rises towards hip height; only trust "standing thigh" when the leg is hanging straight
+        if (th(s) > 0.25 && Math.abs(W(s + 'kn').y - W(s + 'hip').y) > 0.8 * th(s)) S.stand.thigh = S.stand.thigh == null ? th(s) : S.stand.thigh + 0.05 * (th(s) - S.stand.thigh);
+        const kl = (thigh - (W(s + 'kn').y - W(s + 'hip').y)) / T;
+        let al = 0;
+        if (vis(f, I[s + 'an']) && vis(f, I[o + 'an'])) al = (W(o + 'an').y - W(s + 'an').y) / T;
+        ank[s] = al; lift[s] = Math.max(kl, al * (TUNE.stepUp / TUNE.ankleUp));
+        if (vis(f, I[s + 'an'])) kang[s] = angle3(W(s + 'hip'), W(s + 'kn'), W(s + 'an'));
+      }
+      dbg.lift = { l: +(lift.l || 0).toFixed(2), r: +(lift.r || 0).toFixed(2) };
+      dbg.kneeAng = { l: kang.l && Math.round(kang.l), r: kang.r && Math.round(kang.r) };
+      for (const s of ['l', 'r']) {
+        const up = TUNE.stepUp / sens, down = TUNE.stepDown / sens;
+        if (!S.legUp[s] && lift[s] > up && t - S.lastStep[s] > TUNE.stepRefr) {
+          // a kick is a high, straight leg: do not also count it as a step
+          const kicking = (ank[s] || 0) > TUNE.kickRise / sens && (kang[s] || 0) > TUNE.kickAngle;
+          S.legUp[s] = true; S.lastStep[s] = t;
+          if (!kicking) { S.counts.step++; S.steps.push(t); ev.push({ type: 'step', side: s, t }); }
+        } else if (S.legUp[s] && lift[s] < down) S.legUp[s] = false;
+        // kick: foot well above the planted foot with a (nearly) straight knee
+        if (S.kickArmed[s] && (ank[s] || 0) > TUNE.kickRise / sens && (kang[s] || 0) > TUNE.kickAngle && t - S.lastKick > TUNE.kickRefr) {
+          S.kickArmed[s] = false; S.lastKick = t; S.counts.kick++; ev.push({ type: 'kick', side: s, power: clamp((ank[s] - TUNE.kickRise) + 0.5, 0.3, 1), t });
+        } else if (!S.kickArmed[s] && (ank[s] || 0) < 0.5) S.kickArmed[s] = true;
+      }
+      S.steps = S.steps.filter((x) => t - x < 1.6);
+      const recent = S.steps.filter((x) => t - x < 1.0).length;
+      const walking = S.steps.length > 0 && t - S.steps[S.steps.length - 1] < TUNE.walkHold;
+      const speed = walking ? clamp(recent / 2, 0.3, 1.6) : 0; // 1.0 = one step every 0.5 s
+
+      // ---------------- arms: punch + swing ----------------
+      for (const s of ['l', 'r']) {
+        if (!(vis(f, I[s + 'sh']) && vis(f, I[s + 'el']) && vis(f, I[s + 'wr']))) { hist[s].length = 0; continue; }
+        const sh = W(s + 'sh'), el = W(s + 'el'), wr = W(s + 'wr');
+        const A = Math.max(0.2, d3(sh, el) + d3(el, wr));
+        const ext = d3(sh, wr) / A, yRel = (wr.y - sh.y) / A;
+        const th2 = Math.atan2(wr.y - sh.y, wr.x - sh.x), r2 = Math.hypot(wr.x - sh.x, wr.y - sh.y) / A;
+        const h = hist[s]; h.push({ t, ext, th: th2, r2, x: wr.x - sh.x, yRel }); while (h.length && t - h[0].t > 0.7) h.shift();
+        dbg['ext' + s] = +ext.toFixed(2);
+        const win = (w) => h.filter((p) => t - p.t <= w);
+        // punch: arm snaps from folded to straight at about shoulder height
+        const pw = win(TUNE.punchWin), minExt = Math.min(...pw.map((p) => p.ext));
+        if (ext > TUNE.punchExtHi - (sens - 1) * 0.06 && minExt < TUNE.punchExtLo + (sens - 1) * 0.06 && yRel > TUNE.punchYLo && yRel < TUNE.punchYHi && t - S.lastPunch[s] > TUNE.punchRefr && t - S.lastSwing[s] > 0.3) {
+          S.lastPunch[s] = t; S.counts.punch++; ev.push({ type: 'punch', side: s, power: clamp((ext - minExt) * 1.4, 0.4, 1), t });
+        }
+        // swing: wrist sweeps a big arc around the shoulder while the arm stays out
+        const sw = win(TUNE.swingWin);
+        if (sw.length >= 3 && t - S.lastSwing[s] > TUNE.swingRefr && t - S.lastPunch[s] > 0.3) {
+          const back = (rot) => S.swingDir[s] && rot !== S.swingDir[s] && t - S.lastSwing[s] < 0.7; // hand returning after a swing is not a new swing
+          let d = 0; for (let i = 1; i < sw.length; i++) d += wrapA(sw[i].th - sw[i - 1].th);
+          const meanR = sw.reduce((a, p) => a + p.r2, 0) / sw.length, dExt = Math.abs(sw[sw.length - 1].ext - sw[0].ext);
+          dbg['arc' + s] = Math.round(d / D2R);
+          if (Math.abs(d) > (TUNE.swingAng / sens) * D2R && meanR > TUNE.swingMinR && dExt < TUNE.swingMaxExt) {
+            const dx = sw[sw.length - 1].x - sw[0].x, dir = dx >= 0 ? 'r' : 'l', rot = d > 0 ? 'cw' : 'ccw'; if (back(rot)) continue;
+            S.lastSwing[s] = t; S.counts.swing++; S.swingDir[s] = rot;
+            ev.push({ type: 'swing', side: s, dir, power: clamp(Math.abs(d) / (120 * D2R), 0.5, 1), t }); // dir = way the hand travels in the image
+          }
+        }
+      }
+      return { ok: true, events: ev, walking, speed, counts: S.counts, debug: dbg };
+    }
+    return { update, reset, setSens(v) { sens = clamp(v, 0.5, 1.8); }, get sens() { return sens; }, counts: () => S.counts };
+  }
+
+  const api = { create, TUNE, I };
+  root.FitMotion = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+</script>
+<script>
 /* FitQuest — "Kamp & Reruntuhan": side-scrolling apocalypse auto-battler with weapon skill trees (unlocked by muscle level). Sim (pure logic, testable) + View (canvas). */
 (function (root) {
   'use strict';
@@ -2128,7 +2258,7 @@ window.FIT_DATA = {
 /* FitQuest — XP, level, streak, workout runner, camera form-check (MediaPipe Pose, on-device) */
 (() => {
   'use strict';
-  const D = window.FIT_DATA, DET = window.FitDetectors, FX = window.FitExAnim, MU = window.FitMusic || { play() {}, duck() {}, setEnabled() {}, setVolume() {}, unlock() {} };
+  const D = window.FIT_DATA, DET = window.FitDetectors, FX = window.FitExAnim, FM = window.FitMotion, MU = window.FitMusic || { play() {}, duck() {}, setEnabled() {}, setVolume() {}, unlock() {} };
   const $ = (s, r = document) => r.querySelector(s);
   const app = $('#app');
   const AV = window.FitAvatar;
@@ -2683,6 +2813,7 @@ window.FIT_DATA = {
     </div>
     <button class="btn big play" id="play">⚔ MAIN GAME <small>${unlocked}/${G.ZONES.length} zona terbuka</small></button>
     <div class="row2"><button class="btn ghost" id="gudang">🎒 Gudang</button><button class="btn ghost" id="badan">👤 Badan</button></div>
+    <button class="btn ghost" id="motion">🕹 Uji Gerakan <small>kamera jadi kontrol game</small></button>
     <div class="invite ${inv.cls}"><b>${inv.t}</b><span>${inv.s}</span></div>
     <h3 class="q">Seberapa semangat buat hadapi hari ini?</h3>
     <div class="choices">${CHOICES.map((c) => `<button class="choice m-${c.mood}" data-k="${c.key}"><canvas class="pix" data-m="${c.mood}"></canvas><b>${c.name}</b><small>${c.cap}</small></button>`).join('')}</div>`;
@@ -2692,7 +2823,7 @@ window.FIT_DATA = {
     campTimer = setInterval(() => { if (!document.body.contains(cc)) { stopCamp(); return; } G.drawCamp(cc, (Date.now() - t0) / 1000, skyClass()); }, 150);
     app.querySelectorAll('.choice canvas').forEach((c) => drawPerson(c, c.dataset.m));
     app.querySelectorAll('.choice').forEach((b) => (b.onclick = () => readyScreen(CHOICES.find((c) => c.key === b.dataset.k))));
-    $('#play').onclick = gameMenu; $('#gudang').onclick = shop; $('#badan').onclick = () => bodyView(false); $('#cfg').onclick = settings;
+    $('#play').onclick = gameMenu; $('#gudang').onclick = shop; $('#badan').onclick = () => bodyView(false); $('#motion').onclick = motionTest; $('#cfg').onclick = settings;
     window.scrollTo(0, 0);
   }
 
@@ -2720,6 +2851,62 @@ window.FIT_DATA = {
   /* ---- game ---- */
   let GM = null;
   const myStats = () => G.playerStats(curL(), groupLevels(), S.gear);
+
+  /* ---------------- motion test: the camera as a controller (walk, punch, swing, kick) ---------------- */
+  let mtRun = null;
+  async function motionTest() {
+    stopCamp(); MU.play('camp');
+    const sensOf = () => (S.settings.motionSens == null ? 100 : S.settings.motionSens);
+    app.innerHTML = `
+    <div class="cam full mtbox" id="mtBox" style="--arn:1.333"><div class="mirror"><video id="mtv" playsinline muted></video><canvas id="mtc"></canvas></div>
+      <div class="mttiles">
+        <div class="mt-tile" data-k="step"><b>🚶</b><span>LANGKAH</span><i>0</i></div>
+        <div class="mt-tile" data-k="punch"><b>👊</b><span>PUKUL</span><i>0</i></div>
+        <div class="mt-tile" data-k="swing"><b>⚔️</b><span>AYUN</span><i>0</i></div>
+        <div class="mt-tile" data-k="kick"><b>🦵</b><span>TENDANG</span><i>0</i></div>
+      </div>
+      <div class="mtwalk"><i id="mtspeed"></i></div>
+      <div class="mtmsg" id="mtmsg">Menyiapkan kamera…</div>
+      <pre class="mtdbg" id="mtdbg" style="display:none"></pre>
+      <div class="mtctl"><label>Sensitivitas <b id="msv"></b><input type="range" id="msens" min="60" max="160" step="5" value="${sensOf()}"></label>
+        <div class="mtbtns"><button class="btn mini" id="mtdbgb">Debug</button><button class="btn mini" id="mtreset">Reset hitungan</button><button class="btn mini" id="mtback">✕ Selesai</button></div></div>
+    </div>`;
+    const ctrl = FM.create({ sens: sensOf() / 100 });
+    mtRun = { raf: 0, ctrl, ended: false };
+    const quit = () => { if (mtRun) { mtRun.ended = true; cancelAnimationFrame(mtRun.raf); } mtRun = null; stopCamera(); home(); };
+    $('#mtback').onclick = quit;
+    $('#mtreset').onclick = () => { ctrl.reset(); app.querySelectorAll('.mt-tile i').forEach((i) => (i.textContent = '0')); };
+    $('#mtdbgb').onclick = () => { const d = $('#mtdbg'); d.style.display = d.style.display === 'none' ? '' : 'none'; };
+    const msv = () => { $('#msv').textContent = $('#msens').value + '%'; };
+    msv(); $('#msens').oninput = () => { msv(); ctrl.setSens($('#msens').value / 100); }; $('#msens').onchange = () => { S.settings.motionSens = parseInt($('#msens').value, 10); save(); };
+    const r = await startCamera($('#mtv'));
+    if (!mtRun || mtRun.ended) return;
+    if (!r.ok) { $('#mtmsg').innerHTML = `📷 ${r.reason}<br><button class="btn mini" id="mtretry">Coba lagi</button>`; $('#mtretry').onclick = () => motionTest(); return; }
+    $('#mtmsg').textContent = 'Berdiri ±2 m dari HP, seluruh badan masuk. Coba jalan di tempat, pukul, ayun, tendang!';
+    const FREQ = { step: 330, punch: 520, swing: 700, kick: 220 };
+    const frame = () => {
+      if (!mtRun || mtRun.ended) return; mtRun.raf = requestAnimationFrame(frame);
+      const v = $('#mtv'), cv = $('#mtc'); if (!v || !cam.landmarker || v.readyState < 2 || v.currentTime === cam.lastVideoTime) return;
+      const now = performance.now(); if (now - cam.lastT < 33) return; cam.lastT = now; cam.lastVideoTime = v.currentTime;
+      let res; try { res = cam.landmarker.detectForVideo(v, now); } catch (e) { return; }
+      const img = res.landmarks && res.landmarks[0], world = res.worldLandmarks && res.worldLandmarks[0], w = v.videoWidth, h = v.videoHeight;
+      if (cv.width !== w) { cv.width = w; cv.height = h; $('#mtBox').style.setProperty('--arn', (w / h).toFixed(3)); }
+      const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
+      if (!img || !world) { $('#mtspeed').style.width = '0'; return; }
+      drawSkeleton(ctx, img, w, h, true);
+      const o = ctrl.update({ img, world, w, h }, now / 1000);
+      if (!o.ok) { $('#mtmsg').textContent = 'Badanmu belum penuh terlihat — mundur sedikit'; $('#mtspeed').style.width = '0'; return; }
+      for (const e of o.events) {
+        const t = app.querySelector(`.mt-tile[data-k="${e.type}"]`); if (!t) continue;
+        t.querySelector('i').textContent = o.counts[e.type]; t.classList.add('hit'); setTimeout(() => t.classList.remove('hit'), 220); beep(FREQ[e.type], 0.05);
+      }
+      $('#mtspeed').style.width = Math.min(100, o.speed * 62) + '%';
+      $('#mtmsg').textContent = o.walking ? 'Jalan! 🚶' : 'Berdiri…';
+      const d = $('#mtdbg'); if (d.style.display !== 'none') d.textContent = JSON.stringify(o.debug);
+    };
+    frame();
+  }
+
   function gameMenu() {
     stopCamp(); bumpGear();
     const L = curL(), ps = myStats();
@@ -2885,7 +3072,7 @@ window.FIT_DATA = {
   }
 
   /* ---------------- boot ---------------- */
-  window.__fq = { music: MU, skillTree, askConfirm, gameMenu, shop, battle, bodyView, state: () => S, buildTimeline, levelInfo, mLevel, routineStats, tick, startWorkout, home, onboarding, revealScreen, settings, groupLevels, gInfo, runner: () => R };
+  window.__fq = { motionTest, music: MU, skillTree, askConfirm, gameMenu, shop, battle, bodyView, state: () => S, buildTimeline, levelInfo, mLevel, routineStats, tick, startWorkout, home, onboarding, revealScreen, settings, groupLevels, gInfo, runner: () => R };
   applyMusic();
   home();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});

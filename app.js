@@ -1,7 +1,7 @@
 /* FitQuest — XP, level, streak, workout runner, camera form-check (MediaPipe Pose, on-device) */
 (() => {
   'use strict';
-  const D = window.FIT_DATA, DET = window.FitDetectors, FX = window.FitExAnim, MU = window.FitMusic || { play() {}, duck() {}, setEnabled() {}, setVolume() {}, unlock() {} };
+  const D = window.FIT_DATA, DET = window.FitDetectors, FX = window.FitExAnim, FM = window.FitMotion, MU = window.FitMusic || { play() {}, duck() {}, setEnabled() {}, setVolume() {}, unlock() {} };
   const $ = (s, r = document) => r.querySelector(s);
   const app = $('#app');
   const AV = window.FitAvatar;
@@ -556,6 +556,7 @@
     </div>
     <button class="btn big play" id="play">⚔ MAIN GAME <small>${unlocked}/${G.ZONES.length} zona terbuka</small></button>
     <div class="row2"><button class="btn ghost" id="gudang">🎒 Gudang</button><button class="btn ghost" id="badan">👤 Badan</button></div>
+    <button class="btn ghost" id="motion">🕹 Uji Gerakan <small>kamera jadi kontrol game</small></button>
     <div class="invite ${inv.cls}"><b>${inv.t}</b><span>${inv.s}</span></div>
     <h3 class="q">Seberapa semangat buat hadapi hari ini?</h3>
     <div class="choices">${CHOICES.map((c) => `<button class="choice m-${c.mood}" data-k="${c.key}"><canvas class="pix" data-m="${c.mood}"></canvas><b>${c.name}</b><small>${c.cap}</small></button>`).join('')}</div>`;
@@ -565,7 +566,7 @@
     campTimer = setInterval(() => { if (!document.body.contains(cc)) { stopCamp(); return; } G.drawCamp(cc, (Date.now() - t0) / 1000, skyClass()); }, 150);
     app.querySelectorAll('.choice canvas').forEach((c) => drawPerson(c, c.dataset.m));
     app.querySelectorAll('.choice').forEach((b) => (b.onclick = () => readyScreen(CHOICES.find((c) => c.key === b.dataset.k))));
-    $('#play').onclick = gameMenu; $('#gudang').onclick = shop; $('#badan').onclick = () => bodyView(false); $('#cfg').onclick = settings;
+    $('#play').onclick = gameMenu; $('#gudang').onclick = shop; $('#badan').onclick = () => bodyView(false); $('#motion').onclick = motionTest; $('#cfg').onclick = settings;
     window.scrollTo(0, 0);
   }
 
@@ -593,6 +594,62 @@
   /* ---- game ---- */
   let GM = null;
   const myStats = () => G.playerStats(curL(), groupLevels(), S.gear);
+
+  /* ---------------- motion test: the camera as a controller (walk, punch, swing, kick) ---------------- */
+  let mtRun = null;
+  async function motionTest() {
+    stopCamp(); MU.play('camp');
+    const sensOf = () => (S.settings.motionSens == null ? 100 : S.settings.motionSens);
+    app.innerHTML = `
+    <div class="cam full mtbox" id="mtBox" style="--arn:1.333"><div class="mirror"><video id="mtv" playsinline muted></video><canvas id="mtc"></canvas></div>
+      <div class="mttiles">
+        <div class="mt-tile" data-k="step"><b>🚶</b><span>LANGKAH</span><i>0</i></div>
+        <div class="mt-tile" data-k="punch"><b>👊</b><span>PUKUL</span><i>0</i></div>
+        <div class="mt-tile" data-k="swing"><b>⚔️</b><span>AYUN</span><i>0</i></div>
+        <div class="mt-tile" data-k="kick"><b>🦵</b><span>TENDANG</span><i>0</i></div>
+      </div>
+      <div class="mtwalk"><i id="mtspeed"></i></div>
+      <div class="mtmsg" id="mtmsg">Menyiapkan kamera…</div>
+      <pre class="mtdbg" id="mtdbg" style="display:none"></pre>
+      <div class="mtctl"><label>Sensitivitas <b id="msv"></b><input type="range" id="msens" min="60" max="160" step="5" value="${sensOf()}"></label>
+        <div class="mtbtns"><button class="btn mini" id="mtdbgb">Debug</button><button class="btn mini" id="mtreset">Reset hitungan</button><button class="btn mini" id="mtback">✕ Selesai</button></div></div>
+    </div>`;
+    const ctrl = FM.create({ sens: sensOf() / 100 });
+    mtRun = { raf: 0, ctrl, ended: false };
+    const quit = () => { if (mtRun) { mtRun.ended = true; cancelAnimationFrame(mtRun.raf); } mtRun = null; stopCamera(); home(); };
+    $('#mtback').onclick = quit;
+    $('#mtreset').onclick = () => { ctrl.reset(); app.querySelectorAll('.mt-tile i').forEach((i) => (i.textContent = '0')); };
+    $('#mtdbgb').onclick = () => { const d = $('#mtdbg'); d.style.display = d.style.display === 'none' ? '' : 'none'; };
+    const msv = () => { $('#msv').textContent = $('#msens').value + '%'; };
+    msv(); $('#msens').oninput = () => { msv(); ctrl.setSens($('#msens').value / 100); }; $('#msens').onchange = () => { S.settings.motionSens = parseInt($('#msens').value, 10); save(); };
+    const r = await startCamera($('#mtv'));
+    if (!mtRun || mtRun.ended) return;
+    if (!r.ok) { $('#mtmsg').innerHTML = `📷 ${r.reason}<br><button class="btn mini" id="mtretry">Coba lagi</button>`; $('#mtretry').onclick = () => motionTest(); return; }
+    $('#mtmsg').textContent = 'Berdiri ±2 m dari HP, seluruh badan masuk. Coba jalan di tempat, pukul, ayun, tendang!';
+    const FREQ = { step: 330, punch: 520, swing: 700, kick: 220 };
+    const frame = () => {
+      if (!mtRun || mtRun.ended) return; mtRun.raf = requestAnimationFrame(frame);
+      const v = $('#mtv'), cv = $('#mtc'); if (!v || !cam.landmarker || v.readyState < 2 || v.currentTime === cam.lastVideoTime) return;
+      const now = performance.now(); if (now - cam.lastT < 33) return; cam.lastT = now; cam.lastVideoTime = v.currentTime;
+      let res; try { res = cam.landmarker.detectForVideo(v, now); } catch (e) { return; }
+      const img = res.landmarks && res.landmarks[0], world = res.worldLandmarks && res.worldLandmarks[0], w = v.videoWidth, h = v.videoHeight;
+      if (cv.width !== w) { cv.width = w; cv.height = h; $('#mtBox').style.setProperty('--arn', (w / h).toFixed(3)); }
+      const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
+      if (!img || !world) { $('#mtspeed').style.width = '0'; return; }
+      drawSkeleton(ctx, img, w, h, true);
+      const o = ctrl.update({ img, world, w, h }, now / 1000);
+      if (!o.ok) { $('#mtmsg').textContent = 'Badanmu belum penuh terlihat — mundur sedikit'; $('#mtspeed').style.width = '0'; return; }
+      for (const e of o.events) {
+        const t = app.querySelector(`.mt-tile[data-k="${e.type}"]`); if (!t) continue;
+        t.querySelector('i').textContent = o.counts[e.type]; t.classList.add('hit'); setTimeout(() => t.classList.remove('hit'), 220); beep(FREQ[e.type], 0.05);
+      }
+      $('#mtspeed').style.width = Math.min(100, o.speed * 62) + '%';
+      $('#mtmsg').textContent = o.walking ? 'Jalan! 🚶' : 'Berdiri…';
+      const d = $('#mtdbg'); if (d.style.display !== 'none') d.textContent = JSON.stringify(o.debug);
+    };
+    frame();
+  }
+
   function gameMenu() {
     stopCamp(); bumpGear();
     const L = curL(), ps = myStats();
@@ -758,7 +815,7 @@
   }
 
   /* ---------------- boot ---------------- */
-  window.__fq = { music: MU, skillTree, askConfirm, gameMenu, shop, battle, bodyView, state: () => S, buildTimeline, levelInfo, mLevel, routineStats, tick, startWorkout, home, onboarding, revealScreen, settings, groupLevels, gInfo, runner: () => R };
+  window.__fq = { motionTest, music: MU, skillTree, askConfirm, gameMenu, shop, battle, bodyView, state: () => S, buildTimeline, levelInfo, mLevel, routineStats, tick, startWorkout, home, onboarding, revealScreen, settings, groupLevels, gInfo, runner: () => R };
   applyMusic();
   home();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
