@@ -217,7 +217,7 @@
   /* camera preview when AI is on, otherwise the avatar demonstrates the movement */
   function applyCamLayout() {
     if (!R) return;
-    $('#camBox').style.display = R.camOn ? '' : 'none';
+    $('#camBox').style.display = R.camOn ? '' : 'none'; const rn = app.querySelector('.run'); if (rn) rn.classList.toggle('camon', !!R.camOn);
     $('#exStage').style.display = R.camOn ? 'none' : '';
     if (!R.camOn && !exRaf) exLoop();
     if (R.camOn) { cancelAnimationFrame(exRaf); exRaf = 0; }

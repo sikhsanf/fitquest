@@ -91,7 +91,8 @@ h3.q{text-align:center;font-size:17px;margin:4px 8px 16px;line-height:1.35}
 .phase{text-align:center;margin-top:14px;font-weight:800;letter-spacing:3px;font-size:13px;color:var(--mut)}.phase.work{color:var(--acc)}.phase.rest{color:var(--acc2)}
 .timer{text-align:center;font-size:84px;font-weight:800;line-height:1;margin:2px 0 6px;font-variant-numeric:tabular-nums;text-shadow:4px 4px 0 #000}
 .sub{text-align:center;color:var(--mut);font-size:14px;padding:0 8px}
-.cam{position:relative;height:36vh;aspect-ratio:var(--ar,3/4);max-width:100%;margin:10px auto;overflow:hidden;background:#000;box-shadow:0 0 0 3px var(--line),0 0 0 6px var(--card2)}
+.cam{position:relative;height:56vh;height:56dvh;aspect-ratio:var(--ar,3/4);max-width:100%;margin:10px auto;overflow:hidden;background:#000;box-shadow:0 0 0 3px var(--line),0 0 0 6px var(--card2)}
+.run.camon .timer{font-size:56px;margin:0}.run.camon .sub,.run.camon .chips{display:none}.run.camon .cam{height:max(46vh,calc(100vh - 330px));height:max(46dvh,calc(100dvh - 330px));max-height:74dvh;margin:6px auto}
 .mirror{position:absolute;inset:0;transform:scaleX(-1)}.mirror video,.mirror canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .hud{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;font-weight:800;font-size:20px;text-shadow:0 2px 0 #000}
 .form{font-size:14px;padding:3px 10px;background:rgba(0,0,0,.6);color:var(--c,#fff)}
@@ -2339,7 +2340,7 @@ window.FIT_DATA = {
   /* camera preview when AI is on, otherwise the avatar demonstrates the movement */
   function applyCamLayout() {
     if (!R) return;
-    $('#camBox').style.display = R.camOn ? '' : 'none';
+    $('#camBox').style.display = R.camOn ? '' : 'none'; const rn = app.querySelector('.run'); if (rn) rn.classList.toggle('camon', !!R.camOn);
     $('#exStage').style.display = R.camOn ? 'none' : '';
     if (!R.camOn && !exRaf) exLoop();
     if (R.camOn) { cancelAnimationFrame(exRaf); exRaf = 0; }
