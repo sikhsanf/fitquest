@@ -112,7 +112,7 @@
   async function loadLocalPose() {
     await loadScript('mediapipe/pose.js');
     const pose = new window.Pose({ locateFile: (f) => 'mediapipe/' + f });
-    pose.setOptions({ modelComplexity: 0, smoothLandmarks: true, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    pose.setOptions({ modelComplexity: 0, smoothLandmarks: false, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
     let last = null, busy = false;
     pose.onResults((r) => { last = r; });
     await pose.initialize();
@@ -598,6 +598,17 @@
 
   /* ---------------- motion test: the camera as a controller (walk, punch, swing, kick) ---------------- */
   let mtRun = null;
+
+  /* pixel-motion energy (see FitMotion.makeEnergy): small offscreen copy of the camera frame */
+  const energyCtx = { cv: null, fn: null };
+  function frameEnergy(video, img) {
+    if (!video.videoWidth) return undefined;
+    if (!energyCtx.cv) { energyCtx.cv = document.createElement('canvas'); energyCtx.fn = FM.makeEnergy(); }
+    const W = 160, H = Math.max(40, Math.round(160 * video.videoHeight / video.videoWidth)), c = energyCtx.cv;
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; energyCtx.fn = FM.makeEnergy(); }
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(video, 0, 0, W, H);
+    try { return energyCtx.fn(x.getImageData(0, 0, W, H).data, W, H, img); } catch (e) { return undefined; }
+  }
   async function motionTest() {
     stopCamp(); MU.play('camp');
     const sensOf = () => (S.settings.motionSens == null ? 100 : S.settings.motionSens);
@@ -638,7 +649,7 @@
       const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
       if (!img || !world) { $('#mtspeed').style.width = '0'; return; }
       drawSkeleton(ctx, img, w, h, true);
-      const o = ctrl.update({ img, world, w, h }, now / 1000);
+      const o = ctrl.update({ img, world, w, h, energy: frameEnergy(v, img) }, now / 1000);
       if (!o.ok) { $('#mtmsg').textContent = 'Badanmu belum penuh terlihat — mundur sedikit'; $('#mtspeed').style.width = '0'; return; }
       for (const e of o.events) {
         const t = app.querySelector(`.mt-tile[data-k="${e.type}"]`); if (!t) continue;
@@ -716,18 +727,19 @@
       <div class="fpip" id="fpip"><div class="mirror"><video id="fv" playsinline muted></video><canvas id="fvc"></canvas></div></div>
       <div class="fmsg" id="fmsg">Menyiapkan kamera…</div>
       <button class="ibtn fq" id="fq" aria-label="Kabur">✕</button><button class="ibtn fq2" id="fqd" aria-label="Debug">🐞</button><pre class="fdbg" id="fdbg" style="display:none"></pre>
-      <div class="fkeys" id="fkeys"><button class="gbtn" id="fkw">🚶 JALAN</button><button class="gbtn" id="fkp">👊 PUKUL</button><button class="gbtn" id="fks">⚔️ AYUN</button><button class="gbtn" id="fkk">🦵 TENDANG</button></div>`;
+      <div class="fkeys" id="fkeys"><button class="gbtn" id="fkw">🚶 JALAN</button><button class="gbtn" id="fkp">👊 PUKUL</button><button class="gbtn" id="fks">⚔️ AYUN</button><button class="gbtn" id="fkk">🦵 TENDANG</button><button class="gbtn" id="fkg">🛡 TANGKIS</button></div>`;
     document.body.appendChild(ov);
     const hideMsg = (ms) => setTimeout(() => { const m = $('#fmsg'); if (m) m.style.display = 'none'; }, ms);
-    const dbgLog = []; let game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
+    const dbgLog = []; let holdG = false, camGuard = false, game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
     const finish = (r) => { if (ended) return; ended = true; cancelAnimationFrame(raf); stopCamera(); document.removeEventListener('keydown', kd); document.removeEventListener('keyup', ku); fpsRun = null; ov.remove(); endBattle(zone, r, () => fpsBattle(zone)); };
     const begin = () => { if (game) return; game = window.FitFPS.play($('#fc'), { ps, zone, pal: palOf(), onEnd: finish }); };
     const act = (t, p) => { if (!game) { begin(); hideMsg(0); } if (!game) return; const h = game.act(t, p); beep(h ? { punch: 520, swing: 700, kick: 220 }[t] : 140, 0.05); };
-    const kd = (e) => { if (e.repeat) return; const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 1; if (k === 'j') act('punch'); if (k === 'k') act('swing'); if (k === 'l') act('kick'); };
-    const ku = (e) => { const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 0; };
+    const kd = (e) => { if (e.repeat) return; const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 1; if (k === 'j') act('punch'); if (k === 'k') act('swing'); if (k === 'l') act('kick'); if (k === 'g') holdG = true; };
+    const ku = (e) => { const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 0; if (k === 'g') holdG = false; };
     document.addEventListener('keydown', kd); document.addEventListener('keyup', ku);
     const fw = $('#fkw'); fw.onpointerdown = (e) => { e.preventDefault(); holdW = true; if (!game) { begin(); hideMsg(0); } }; fw.onpointerup = fw.onpointerleave = () => { holdW = false; };
     $('#fkp').onpointerdown = (e) => { e.preventDefault(); act('punch'); }; $('#fks').onpointerdown = (e) => { e.preventDefault(); act('swing'); }; $('#fkk').onpointerdown = (e) => { e.preventDefault(); act('kick'); };
+    const fg = $('#fkg'); fg.onpointerdown = (e) => { e.preventDefault(); holdG = true; if (!game) { begin(); hideMsg(0); } }; fg.onpointerup = fg.onpointerleave = () => { holdG = false; };
     $('#fq').onclick = () => { if (game) game.flee(); else finish({ status: 'flee', kills: 0, scrap: 0 }); };
     $('#fqd').onclick = () => { const d = $('#fdbg'); d.style.display = d.style.display === 'none' ? '' : 'none'; };
     fpsRun = { finish };
@@ -739,22 +751,23 @@
     let okSince = 0;
     const loop = () => {
       if (ended) return; raf = requestAnimationFrame(loop);
-      if (game) game.walk(Math.max(holdW || wasd ? 1 : 0, fpsSpeed));
+      if (game) { game.walk(Math.max(holdW || wasd ? 1 : 0, fpsSpeed)); game.guard(holdG || camGuard); }
       const v = $('#fv'), cv = $('#fvc'); if (!camOk || !v || !cam.landmarker || v.readyState < 2 || v.currentTime === cam.lastVideoTime) return;
       const now = performance.now(); if (now - cam.lastT < 33) return; cam.lastT = now; cam.lastVideoTime = v.currentTime;
       let res; try { res = cam.landmarker.detectForVideo(v, now); } catch (e) { return; }
       const img = res.landmarks && res.landmarks[0], world = res.worldLandmarks && res.worldLandmarks[0], w = v.videoWidth, h = v.videoHeight;
       if (cv.width !== w) { cv.width = w; cv.height = h; }
       const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
-      if (!img || !world) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Berdiri ±2 m, seluruh badan masuk frame'; return; }
+      if (!img || !world) { fpsSpeed = 0; okSince = 0; camGuard = false; if (!game) $('#fmsg').textContent = 'Berdiri ±2 m, seluruh badan masuk frame'; return; }
       drawSkeleton(ctx, img, w, h, true);
-      const o = ctrl.update({ img, world, w, h }, now / 1000);
-      if (!o.ok) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Badan belum penuh terlihat — mundur sedikit'; return; }
+      const o = ctrl.update({ img, world, w, h, energy: frameEnergy(v, img) }, now / 1000);
+      if (!o.ok) { fpsSpeed = 0; okSince = 0; camGuard = false; if (!game) $('#fmsg').textContent = 'Badan belum penuh terlihat — mundur sedikit'; return; }
       if (!game) { okSince = okSince || now; const left = 2 - (now - okSince) / 1000; $('#fmsg').textContent = left > 0 ? `Siap… ${Math.ceil(left)}` : 'GAS!'; if (left <= 0) { begin(); hideMsg(700); } return; }
       fpsSpeed = o.speed;
+      camGuard = !!o.guarding;
       for (const e of o.events) if (e.type === 'punch' || e.type === 'swing' || e.type === 'kick') { act(e.type, e.power); dbgLog.push(`${(now / 1000 % 1000).toFixed(1)} ${e.type} ${e.side}${e.dir ? ' ' + e.dir : ''} pw${(e.power || 0).toFixed(2)}`); if (dbgLog.length > 7) dbgLog.shift(); }
       else if (e.type === 'unstep') dbgLog.push(`${(now / 1000 % 1000).toFixed(1)} langkah dibatalkan (tendangan)`);
-      const dp = $('#fdbg'); if (dp && dp.style.display !== 'none') dp.textContent = dbgLog.join('\n') + '\n' + JSON.stringify(o.debug) + '\nlangkah ' + o.counts.step + ' pukul ' + o.counts.punch + ' ayun ' + o.counts.swing + ' tendang ' + o.counts.kick;
+      const dp = $('#fdbg'); if (dp && dp.style.display !== 'none') dp.textContent = dbgLog.join('\n') + '\n' + JSON.stringify(o.debug) + '\nTANGKIS ' + (o.guarding ? 'ON' : '-') + ' langkah ' + o.counts.step + ' pukul ' + o.counts.punch + ' ayun ' + o.counts.swing + ' tendang ' + o.counts.kick;
     };
     loop();
   }

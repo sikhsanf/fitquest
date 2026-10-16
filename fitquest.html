@@ -160,7 +160,7 @@ select{background:var(--card2);color:var(--txt);border:0;box-shadow:0 0 0 2px va
 .fpip .mirror{position:relative;width:100%;height:100%;transform:scaleX(-1)}.fpip video,.fpip canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .fmsg{position:absolute;left:0;right:0;top:34%;text-align:center;font-weight:800;font-size:22px;color:#c6f432;text-shadow:0 2px 0 #000;padding:0 16px}
 .fq{position:absolute;left:8px;top:22px}.fq2{position:absolute;left:58px;top:22px}.fdbg{position:absolute;left:8px;top:74px;max-width:62%;margin:0;padding:6px;background:rgba(0,0,0,.72);color:#c6f432;font:10px/1.35 monospace;white-space:pre-wrap;pointer-events:none}
-.fkeys{position:absolute;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(4,1fr);gap:6px;padding:8px}.fkeys .gbtn{padding:14px 2px;font-size:12px}.fkeys.small{opacity:.35}
+.fkeys{position:absolute;left:0;right:0;bottom:0;display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:8px}.fkeys .gbtn{padding:14px 2px;font-size:12px}.fkeys.small{opacity:.35}
 .gctl{display:grid;grid-template-columns:2fr 1fr 1fr;gap:10px;padding:0 16px}
 .gbtn{padding:18px 6px;font-weight:800;font-size:15px;background:var(--card2,#2a3550);color:#fff;box-shadow:var(--px);touch-action:manipulation;user-select:none}
 .gbtn.atk{background:#c0392b;font-size:18px}.gbtn.flee{background:#3a3a46}
@@ -1710,7 +1710,8 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
   const I = { lsh: 11, rsh: 12, lel: 13, rel: 14, lwr: 15, rwr: 16, lhip: 23, rhip: 24, lkn: 25, rkn: 26, lan: 27, ran: 28 };
   const D2R = Math.PI / 180;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
-  const vis = (f, i) => { const p = f.img && f.img[i]; return !!p && (p.visibility === undefined || p.visibility >= 0.45); };
+  let VISMIN = 0.45, VISARM = 0.35;
+  const vis = (f, i, m) => { const p = f.img && f.img[i]; return !!p && (p.visibility === undefined || p.visibility >= (m || VISMIN)); };
   const d3 = (a, b) => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
   function angle3(a, b, c) {
     const v1 = [a.x - b.x, a.y - b.y, a.z - b.z], v2 = [c.x - b.x, c.y - b.y, c.z - b.z], n = Math.hypot(...v1) * Math.hypot(...v2);
@@ -1721,8 +1722,8 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
   /* tunables (distances in torso lengths T, times in seconds). `sens` > 1 = more sensitive. */
   const TUNE = {
     stepUp: 0.2, stepDown: 0.08, ankleUp: 0.32, stepRefr: 0.18, walkHold: 0.9,
-    kickRise: 0.75, kickAngle: 125, kickRefr: 0.6, armQuiet: 0.35,
-    punchExtHi: 0.86, punchExtLo: 0.68, punchWin: 0.38, punchRefr: 0.32, punchYLo: -0.85, punchYHi: 0.55,
+    kickRise: 0.75, kickAngle: 125, kickRefr: 0.6, kickRise2: 0.65, kickAng2: 100, armQuiet: 0.6, guardHold: 0.25, eStep: 4, eArm: 3, eKick: 6, crossDist: 0.6,
+    punchExtHi: 0.72, punchExtLo: 0.66, punchWin: 0.45, punchRefr: 0.32, punchYLo: -0.85, punchYHi: 0.9,
     swingAng: 95, swingWin: 0.32, swingRefr: 0.45, swingMinR: 0.5, swingMaxExt: 0.3,
   };
 
@@ -1732,7 +1733,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
     const hist = { l: [], r: [] };
     let S;
     function reset() {
-      S = { t: 0, counts: { step: 0, punch: 0, swing: 0, kick: 0 }, steps: [], legUp: { l: false, r: false }, lastStep: { l: -9, r: -9 }, kickArmed: { l: true, r: true }, lastKick: -9,
+      S = { eu: [], el: 0, crossT: -1, guard: false, t: 0, counts: { step: 0, punch: 0, swing: 0, kick: 0 }, steps: [], legUp: { l: false, r: false }, lastStep: { l: -9, r: -9 }, kickArmed: { l: true, r: true }, lastKick: -9,
         lastPunch: { l: -9, r: -9 }, lastSwing: { l: -9, r: -9 }, swingDir: { l: null, r: null }, stand: { thigh: null, T: null }, ok: false };
       hist.l.length = 0; hist.r.length = 0;
     }
@@ -1744,6 +1745,13 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       const need = ['lsh', 'rsh', 'lhip', 'rhip'];
       if (!f || !f.world || !need.every((n) => vis(f, I[n]))) { S.ok = false; return { ok: false, events: ev, walking: false, speed: 0, counts: S.counts, debug: dbg }; }
       S.ok = true;
+      // pixel-motion gates: pose joints jitter even when standing still, real motion shows up as changing pixels
+      let upE = 99, lowE = 99;
+      if (f.energy) {
+        S.eu.push({ t, v: f.energy.up }); while (S.eu.length && t - S.eu[0].t > 0.3) S.eu.shift();
+        upE = S.eu.reduce((s, q) => s + q.v, 0) / S.eu.length; S.el += 0.35 * (f.energy.low - S.el); lowE = S.el;
+        dbg.energy = { up: +upE.toFixed(1), low: +lowE.toFixed(1) };
+      }
       const W = (n) => f.world[I[n]];
       const shM = { x: (W('lsh').x + W('rsh').x) / 2, y: (W('lsh').y + W('rsh').y) / 2, z: (W('lsh').z + W('rsh').z) / 2 };
       const hpM = { x: (W('lhip').x + W('rhip').x) / 2, y: (W('lhip').y + W('rhip').y) / 2, z: (W('lhip').z + W('rhip').z) / 2 };
@@ -1766,6 +1774,12 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
         if (vis(f, I[s + 'an'])) kang[s] = angle3(W(s + 'hip'), W(s + 'kn'), W(s + 'an'));
       }
       dbg.lift = { l: +(lift.l || 0).toFixed(2), r: +(lift.r || 0).toFixed(2) };
+      const rise2 = { l: 0, r: 0 }, w2 = f.w || 1, h2 = f.h || 1, G = (n) => f.img[I[n]];
+      { const T2 = Math.hypot(((G('lsh').x + G('rsh').x) - (G('lhip').x + G('rhip').x)) / 2 * w2, ((G('lsh').y + G('rsh').y) - (G('lhip').y + G('rhip').y)) / 2 * h2);
+        if (T2 > 10 && f.img[I.lan] && f.img[I.ran] && f.img[I.lan].visibility >= 0.12 && f.img[I.ran].visibility >= 0.12) { rise2.l = (G('ran').y - G('lan').y) * h2 / T2; rise2.r = -rise2.l; } } // l: left ankle above right; r: opposite
+      const ang2 = (s) => { const h = G(s + 'hip'), k = G(s + 'kn'), n = G(s + 'an'); const v1 = [(h.x - k.x) * w2, (h.y - k.y) * h2], v2 = [(n.x - k.x) * w2, (n.y - k.y) * h2], d = Math.hypot(...v1) * Math.hypot(...v2); return d ? Math.acos(clamp((v1[0] * v2[0] + v1[1] * v2[1]) / d, -1, 1)) / D2R : 0; };
+      const kang2 = { l: ang2('l'), r: ang2('r') };
+      dbg.rise = { l: +rise2.l.toFixed(2), r: +rise2.r.toFixed(2) };
       dbg.kneeAng = { l: kang.l && Math.round(kang.l), r: kang.r && Math.round(kang.r) };
       for (const s of ['l', 'r']) {
         const up = TUNE.stepUp / sens, down = TUNE.stepDown / sens;
@@ -1773,14 +1787,15 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
           // a kick is a high, straight leg: do not also count it as a step
           const kicking = (ank[s] || 0) > TUNE.kickRise / sens && (kang[s] || 0) > TUNE.kickAngle;
           S.legUp[s] = true; S.lastStep[s] = t;
-          if (!kicking && t - S.lastKick > 0.55) { S.counts.step++; S.steps.push(t); ev.push({ type: 'step', side: s, t }); }
+          if (!kicking && lowE >= TUNE.eStep && t - S.lastKick > 0.55 && Math.abs(rise2[s]) < 0.55) { S.counts.step++; S.lastStepSide = s; S.lastStepT = t; S.steps.push(t); ev.push({ type: 'step', side: s, t }); }
         } else if (S.legUp[s] && lift[s] < down) S.legUp[s] = false;
-        // kick: foot well above the planted foot with a (nearly) straight knee
-        if (S.kickArmed[s] && (ank[s] || 0) > TUNE.kickRise / sens && (kang[s] || 0) > TUNE.kickAngle && t - S.lastKick > TUNE.kickRefr) {
+        // kick: in the IMAGE the foot rises far above the planted foot (world depth of legs is too noisy; side/round kicks have bent knees)
+        const r2 = rise2[s];
+        if (S.kickArmed[s] && r2 > TUNE.kickRise2 / sens && kang2[s] > TUNE.kickAng2 && lowE >= TUNE.eKick && t - S.lastKick > TUNE.kickRefr) {
           S.kickArmed[s] = false; S.lastKick = t; S.counts.kick++;
           if (S.lastStep[s] > t - 0.45 && S.steps.length && S.counts.step > 0 && S.steps[S.steps.length - 1] === S.lastStep[s]) { S.steps.pop(); S.counts.step--; ev.push({ type: 'unstep', side: s, t }); } // the ramp of a kick looked like a step
-          ev.push({ type: 'kick', side: s, power: clamp((ank[s] - TUNE.kickRise) + 0.5, 0.3, 1), t });
-        } else if (!S.kickArmed[s] && (ank[s] || 0) < 0.5) S.kickArmed[s] = true;
+          ev.push({ type: 'kick', side: s, power: clamp(r2 - TUNE.kickRise2 + 0.5, 0.3, 1), t });
+        } else if (!S.kickArmed[s] && r2 < 0.35) S.kickArmed[s] = true;
       }
       S.steps = S.steps.filter((x) => t - x < 1.6);
       const recent = S.steps.filter((x) => t - x < 1.0).length;
@@ -1788,10 +1803,22 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       const speed = walking ? clamp(recent / 2, 0.3, 1.6) : 0; // 1.0 = one step every 0.5 s
 
       // ---------------- arms: punch + swing ----------------
-      const armsQuiet = t - S.lastKick < TUNE.armQuiet; // the body lurches during a kick: arms are not input
+      // guard: forearms crossed in an X over the chest (hold it to block)
+      let crossed = false;
+      if (vis(f, I.lwr, 0.05) && vis(f, I.rwr, 0.05)) {
+        const hx = (G('lhip').x + G('rhip').x) / 2, sy = (G('lsh').y + G('rsh').y) / 2, hy = (G('lhip').y + G('rhip').y) / 2, T2g = Math.hypot(((G('lsh').x + G('rsh').x) / 2 - hx) * w2, (sy - hy) * h2) + 1e-6;
+        // when forearms cross the model swaps left/right labels and squashes the shoulders, so go by geometry in torso units: both wrists together in front of the chest
+        const wd = Math.hypot((G('lwr').x - G('rwr').x) * w2, (G('lwr').y - G('rwr').y) * h2) / T2g, cx = (((G('lwr').x + G('rwr').x) / 2 - hx) * w2) / T2g, cy = ((G('lwr').y + G('rwr').y) / 2 - sy) * h2 / T2g;
+        crossed = wd < TUNE.crossDist && Math.abs(cx) < 0.5 && cy > -0.15 && cy < 0.55;
+        dbg.cross = { wd: +wd.toFixed(2), cy: +cy.toFixed(2) };
+      }
+      if (crossed) S.crossLast = t; S.crossT = crossed ? (S.crossT == null || S.crossT < 0 ? t : S.crossT) : (t - (S.crossLast || -9) < 0.2 ? S.crossT : -1);
+      const guarding = S.crossT >= 0 && t - S.crossT >= TUNE.guardHold;
+      if (guarding && !S.guard) ev.push({ type: 'guard', t }); S.guard = guarding;
+      const armsQuiet = crossed || t - (S.crossLast || -9) < 0.2 || upE < TUNE.eArm || t - S.lastKick < TUNE.armQuiet || Math.max(Math.abs(rise2.l), Math.abs(rise2.r)) > 0.45; // the body lurches during a kick: arms are not input
       const marching = S.steps.length > 0 && t - S.steps[S.steps.length - 1] < 0.5; // arm-pump while marching is not a swing
       for (const s of ['l', 'r']) {
-        if (!(vis(f, I[s + 'sh']) && vis(f, I[s + 'el']) && vis(f, I[s + 'wr']))) { hist[s].length = 0; continue; }
+        if (!(vis(f, I[s + 'sh']) && vis(f, I[s + 'el'], VISARM) && vis(f, I[s + 'wr'], VISARM))) { hist[s].length = 0; continue; }
         const sh = W(s + 'sh'), el = W(s + 'el'), wr = W(s + 'wr');
         const A = Math.max(0.2, d3(sh, el) + d3(el, wr));
         const ext = d3(sh, wr) / A, yRel = (wr.y - sh.y) / A;
@@ -1801,7 +1828,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
         const win = (w) => h.filter((p) => t - p.t <= w);
         // punch: arm snaps from folded to straight at about shoulder height
         const pw = win(TUNE.punchWin), minExt = Math.min(...pw.map((p) => p.ext));
-        if (!armsQuiet && ext > TUNE.punchExtHi + (marching ? 0.03 : 0) - (sens - 1) * 0.06 && minExt < TUNE.punchExtLo + (sens - 1) * 0.06 && yRel > TUNE.punchYLo && yRel < TUNE.punchYHi && t - S.lastPunch[s] > TUNE.punchRefr && t - S.lastSwing[s] > 0.3) {
+        if (!armsQuiet && ext > TUNE.punchExtHi + (marching ? 0.06 : 0) - (sens - 1) * 0.06 && minExt < TUNE.punchExtLo + (sens - 1) * 0.06 && yRel > TUNE.punchYLo && yRel < TUNE.punchYHi && t - S.lastPunch[s] > TUNE.punchRefr && t - S.lastSwing[s] > 0.6) {
           S.lastPunch[s] = t; S.counts.punch++; ev.push({ type: 'punch', side: s, power: clamp((ext - minExt) * 1.4, 0.4, 1), t });
         }
         // swing: wrist sweeps a big arc around the shoulder while the arm stays out
@@ -1818,12 +1845,28 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
           }
         }
       }
-      return { ok: true, events: ev, walking, speed, counts: S.counts, debug: dbg };
+      return { ok: true, events: ev, walking, speed, guarding: !!S.guard, counts: S.counts, debug: dbg };
     }
     return { update, reset, setSens(v) { sens = clamp(v, 0.5, 1.8); }, get sens() { return sens; }, counts: () => S.counts };
   }
 
-  const api = { create, TUNE, I };
+
+  /* pixel-motion energy around the body: pass RGBA of a small (e.g. 160 px wide) copy of the camera frame plus the pose image landmarks.
+     Returns { up, low } = changed pixels (|diff| > 12) in the upper body / below the hips, per shoulder-width x torso-length. */
+  function makeEnergy() {
+    let prev = null;
+    return function (rgba, W, H, img) {
+      const g = new Float32Array(W * H);
+      for (let i = 0, j = 0; i < g.length; i++, j += 4) g[i] = 0.299 * rgba[j] + 0.587 * rgba[j + 1] + 0.114 * rgba[j + 2];
+      const p = prev; prev = g;
+      if (!p || !img || !img[I.lsh] || !img[I.rsh] || !img[I.lhip] || !img[I.rhip]) return { up: 0, low: 0 };
+      const shx = (img[I.lsh].x + img[I.rsh].x) / 2 * W, shy = (img[I.lsh].y + img[I.rsh].y) / 2 * H, hy = (img[I.lhip].y + img[I.rhip].y) / 2 * H, sw = Math.abs(img[I.lsh].x - img[I.rsh].x) * W + 1, T = Math.max(8 * H / 90, hy - shy);
+      const x0 = Math.floor(Math.max(0, shx - 1.9 * sw)), x1 = Math.floor(Math.min(W, shx + 1.9 * sw)), ya = Math.floor(Math.max(0, shy - 0.9 * T)), yb = Math.floor(Math.min(H, hy + 0.2 * T)), yc = Math.floor(hy), yd = Math.floor(Math.min(H, hy + 1.2 * T));
+      const sum = (y0, y1) => { let s = 0; for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const d = Math.abs(g[y * W + x] - p[y * W + x]); if (d > 12) s += d; } return s; };
+      return { up: sum(ya, yb) / (sw * T), low: sum(yc, yd) / (sw * T) };
+    };
+  }
+  const api = { makeEnergy, create, TUNE, I, setVis(a) { VISARM = a; } };
   root.FitMotion = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
@@ -2266,7 +2309,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
     anjing:  { spd: 3.2, wind: 0.4, cd: 1.1, reach: 1.3 },
     raksasa: { spd: 0.7, wind: 0.95, cd: 1.9, reach: 2.1 },
   };
-  const HP_M = 0.85, DMG_M = 0.7, WALK_V = 2.4, AGGRO = 12, FIRST = 9, GAP = 5.5, END_PAD = 8, BLOCK = 1.0;
+  const GUARD_MUL = 0.3, HP_M = 0.85, DMG_M = 0.7, WALK_V = 2.4, AGGRO = 12, FIRST = 9, GAP = 5.5, END_PAD = 8, BLOCK = 1.0;
   const ACT = {
     punch: { range: 2.3, n: 1, mul: 0.8, knock: 0.5, stun: 0 },
     swing: { range: 3.3, n: 3, mul: 1.1, knock: 0.9, stun: 0 },
@@ -2281,9 +2324,10 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       enemies.push({ kind, x, hp, maxhp: hp, dmg, st: 'idle', t: 0, cd: 0.5, dead: 0, hit: 0, stun: 0, i });
       x += GAP + (kind === 'raksasa' ? 2 : 0);
     });
-    const S = { t: 0, p: 0, hp: ps.hp, maxhp: ps.hp, ps, enemies, endX: x + END_PAD, zone, status: 'run', kills: 0, hurt: 0, fx: [], v: 0, last: null, lastT: -9, stepPh: 0, walkSpeed: 0, acts: { punch: 0, swing: 0, kick: 0 } };
+    const S = { t: 0, p: 0, hp: ps.hp, maxhp: ps.hp, ps, enemies, endX: x + END_PAD, zone, status: 'run', kills: 0, hurt: 0, fx: [], v: 0, last: null, lastT: -9, stepPh: 0, walkSpeed: 0, acts: { punch: 0, swing: 0, kick: 0 }, guard: false, blocked: 0 };
     const alive = () => enemies.filter((e) => e.hp > 0);
     const foe = () => alive().find((e) => e.x > S.p - 0.5); // nearest ahead
+    S.setGuard = (v) => { S.guard = !!v; };
     S.walk = (sp) => { S.walkSpeed = Math.max(0, Math.min(1.8, sp || 0)); };
     S.act = (type, power) => {
       if (S.status !== 'run') return false;
@@ -2323,7 +2367,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
           e.t += dt;
           if (e.t >= k.wind) {
             if (e.x - S.p <= k.reach + 0.5) {
-              const d = Math.max(1, Math.round(e.dmg - ps.def)); S.hp -= d; S.hurt = 0.4; S.fx.push({ k: 'hurt', v: d, t: 0 });
+              const d = Math.max(1, Math.round((e.dmg - ps.def) * (S.guard ? GUARD_MUL : 1))); S.hp -= d; if (S.guard) { S.blocked++; S.fx.push({ k: 'block', v: d, t: 0 }); } else { S.hurt = 0.4; S.fx.push({ k: 'hurt', v: d, t: 0 }); }
               if (S.hp <= 0) { S.hp = 0; S.status = 'lose'; }
             }
             e.st = 'chase'; e.cd = k.cd; e.t = 0;
@@ -2385,6 +2429,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
     const ctl = {
       sim, stop() { cancelAnimationFrame(raf); ended = true; },
       walk: (v) => sim.walk(v), act: (t, p) => { const h = sim.act(t, p); ann = { t: 0, txt: t === 'punch' ? 'PUKUL' : t === 'swing' ? 'AYUN' : 'TENDANG', hit: h }; return h; },
+      guard: (v) => sim.setGuard(v),
       flee() { if (sim.status === 'run') sim.status = 'flee'; },
     };
     function corridor() {
@@ -2460,6 +2505,11 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       const t = sim.t - sim.lastT, k = sim.last, cx = VW / 2, by = VH;
       const wk = Math.min(1, sim.walkSpeed), bobx = Math.sin(sim.stepPh * 3.1) * 4 * wk, boby = Math.abs(Math.cos(sim.stepPh * 3.1)) * 5 * wk;
       const sc = VH > 260 ? 4.2 : 3.2, wid = opts.ps.weapon, hasW = wid !== 'tangan' && AV;
+      if (sim.guard) {
+        for (const m of [1, -1]) { ctx.save(); ctx.translate(cx + m * 18, by - 8); ctx.rotate(m * -0.75); ctx.fillStyle = col.ts; ctx.fillRect(-18, -10, 36, 220); ctx.fillStyle = col.t; ctx.fillRect(-18, -10, 30, 220); ctx.fillStyle = col.th; ctx.fillRect(-18, -10, 5, 220); ctx.restore(); }
+        drawFist(cx - 26, by - VH * 0.34, sc * 0.9, 0.5, false); drawFist(cx + 26, by - VH * 0.34, sc * 0.9, -0.5, true);
+        ctx.fillStyle = 'rgba(120,200,255,.18)'; ctx.fillRect(0, 0, VW, VH); return;
+      }
       if (k === 'kick' && t < 0.45) { const u = Math.sin(Math.min(1, t / 0.45) * Math.PI); const bx = cx, by2 = by - 4 - u * (VH * 0.42); ctx.fillStyle = '#20232c'; ctx.fillRect(bx - 28, by2, 56, VH - by2 + 20); ctx.fillStyle = '#2f3440'; ctx.fillRect(bx - 28, by2, 12, VH - by2 + 20); ctx.fillStyle = '#d8dbe0'; ctx.fillRect(bx - 31, by2 - 6, 62, 14); ctx.fillStyle = '#9aa0aa'; ctx.fillRect(bx - 31, by2 + 6, 62, 4); ctx.fillStyle = '#111'; ctx.fillRect(bx - 31, by2 + 10, 62, 5); }
       const punch = k === 'punch' && t < 0.3 ? Math.sin(Math.min(1, t / 0.3) * Math.PI) : 0, swing = k === 'swing' && t < 0.4 ? t / 0.4 : -1;
       // left hand: guard (jabs forward on PUKUL)
@@ -2483,6 +2533,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       for (const q of sim.fx) {
         if (q.k === 'dmg') { const d = q.x - sim.p; if (d < 0.3) continue; ctx.font = 'bold ' + (q.crit ? 16 : 12) + 'px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = q.crit ? '#ffd23f' : '#fff'; ctx.fillText(String(q.v), VW / 2, HY - proj(d) * 0.7 - q.t * 30); ctx.textAlign = 'left'; }
       }
+      for (const q of sim.fx) if (q.k === 'block') { ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#7fd0ff'; ctx.fillText('TANGKIS -' + q.v, VW / 2, HY + 14 - q.t * 22); ctx.textAlign = 'left'; }
       if (sim.hurt > 0) { ctx.fillStyle = `rgba(220,20,20,${sim.hurt * 0.9})`; ctx.fillRect(0, 0, VW, VH); }
       if (!sim.walkSpeed && sim.alive().length === 0 && sim.status === 'run') { ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#c6f432'; ctx.fillText('Jalan di tempat untuk maju ▶', VW / 2, 36); ctx.textAlign = 'left'; }
     }
@@ -2617,7 +2668,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
   async function loadLocalPose() {
     await loadScript('mediapipe/pose.js');
     const pose = new window.Pose({ locateFile: (f) => 'mediapipe/' + f });
-    pose.setOptions({ modelComplexity: 0, smoothLandmarks: true, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    pose.setOptions({ modelComplexity: 0, smoothLandmarks: false, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
     let last = null, busy = false;
     pose.onResults((r) => { last = r; });
     await pose.initialize();
@@ -3103,6 +3154,17 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
 
   /* ---------------- motion test: the camera as a controller (walk, punch, swing, kick) ---------------- */
   let mtRun = null;
+
+  /* pixel-motion energy (see FitMotion.makeEnergy): small offscreen copy of the camera frame */
+  const energyCtx = { cv: null, fn: null };
+  function frameEnergy(video, img) {
+    if (!video.videoWidth) return undefined;
+    if (!energyCtx.cv) { energyCtx.cv = document.createElement('canvas'); energyCtx.fn = FM.makeEnergy(); }
+    const W = 160, H = Math.max(40, Math.round(160 * video.videoHeight / video.videoWidth)), c = energyCtx.cv;
+    if (c.width !== W || c.height !== H) { c.width = W; c.height = H; energyCtx.fn = FM.makeEnergy(); }
+    const x = c.getContext('2d', { willReadFrequently: true }); x.drawImage(video, 0, 0, W, H);
+    try { return energyCtx.fn(x.getImageData(0, 0, W, H).data, W, H, img); } catch (e) { return undefined; }
+  }
   async function motionTest() {
     stopCamp(); MU.play('camp');
     const sensOf = () => (S.settings.motionSens == null ? 100 : S.settings.motionSens);
@@ -3143,7 +3205,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
       if (!img || !world) { $('#mtspeed').style.width = '0'; return; }
       drawSkeleton(ctx, img, w, h, true);
-      const o = ctrl.update({ img, world, w, h }, now / 1000);
+      const o = ctrl.update({ img, world, w, h, energy: frameEnergy(v, img) }, now / 1000);
       if (!o.ok) { $('#mtmsg').textContent = 'Badanmu belum penuh terlihat — mundur sedikit'; $('#mtspeed').style.width = '0'; return; }
       for (const e of o.events) {
         const t = app.querySelector(`.mt-tile[data-k="${e.type}"]`); if (!t) continue;
@@ -3221,18 +3283,19 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
       <div class="fpip" id="fpip"><div class="mirror"><video id="fv" playsinline muted></video><canvas id="fvc"></canvas></div></div>
       <div class="fmsg" id="fmsg">Menyiapkan kamera…</div>
       <button class="ibtn fq" id="fq" aria-label="Kabur">✕</button><button class="ibtn fq2" id="fqd" aria-label="Debug">🐞</button><pre class="fdbg" id="fdbg" style="display:none"></pre>
-      <div class="fkeys" id="fkeys"><button class="gbtn" id="fkw">🚶 JALAN</button><button class="gbtn" id="fkp">👊 PUKUL</button><button class="gbtn" id="fks">⚔️ AYUN</button><button class="gbtn" id="fkk">🦵 TENDANG</button></div>`;
+      <div class="fkeys" id="fkeys"><button class="gbtn" id="fkw">🚶 JALAN</button><button class="gbtn" id="fkp">👊 PUKUL</button><button class="gbtn" id="fks">⚔️ AYUN</button><button class="gbtn" id="fkk">🦵 TENDANG</button><button class="gbtn" id="fkg">🛡 TANGKIS</button></div>`;
     document.body.appendChild(ov);
     const hideMsg = (ms) => setTimeout(() => { const m = $('#fmsg'); if (m) m.style.display = 'none'; }, ms);
-    const dbgLog = []; let game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
+    const dbgLog = []; let holdG = false, camGuard = false, game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
     const finish = (r) => { if (ended) return; ended = true; cancelAnimationFrame(raf); stopCamera(); document.removeEventListener('keydown', kd); document.removeEventListener('keyup', ku); fpsRun = null; ov.remove(); endBattle(zone, r, () => fpsBattle(zone)); };
     const begin = () => { if (game) return; game = window.FitFPS.play($('#fc'), { ps, zone, pal: palOf(), onEnd: finish }); };
     const act = (t, p) => { if (!game) { begin(); hideMsg(0); } if (!game) return; const h = game.act(t, p); beep(h ? { punch: 520, swing: 700, kick: 220 }[t] : 140, 0.05); };
-    const kd = (e) => { if (e.repeat) return; const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 1; if (k === 'j') act('punch'); if (k === 'k') act('swing'); if (k === 'l') act('kick'); };
-    const ku = (e) => { const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 0; };
+    const kd = (e) => { if (e.repeat) return; const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 1; if (k === 'j') act('punch'); if (k === 'k') act('swing'); if (k === 'l') act('kick'); if (k === 'g') holdG = true; };
+    const ku = (e) => { const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 0; if (k === 'g') holdG = false; };
     document.addEventListener('keydown', kd); document.addEventListener('keyup', ku);
     const fw = $('#fkw'); fw.onpointerdown = (e) => { e.preventDefault(); holdW = true; if (!game) { begin(); hideMsg(0); } }; fw.onpointerup = fw.onpointerleave = () => { holdW = false; };
     $('#fkp').onpointerdown = (e) => { e.preventDefault(); act('punch'); }; $('#fks').onpointerdown = (e) => { e.preventDefault(); act('swing'); }; $('#fkk').onpointerdown = (e) => { e.preventDefault(); act('kick'); };
+    const fg = $('#fkg'); fg.onpointerdown = (e) => { e.preventDefault(); holdG = true; if (!game) { begin(); hideMsg(0); } }; fg.onpointerup = fg.onpointerleave = () => { holdG = false; };
     $('#fq').onclick = () => { if (game) game.flee(); else finish({ status: 'flee', kills: 0, scrap: 0 }); };
     $('#fqd').onclick = () => { const d = $('#fdbg'); d.style.display = d.style.display === 'none' ? '' : 'none'; };
     fpsRun = { finish };
@@ -3244,22 +3307,23 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
     let okSince = 0;
     const loop = () => {
       if (ended) return; raf = requestAnimationFrame(loop);
-      if (game) game.walk(Math.max(holdW || wasd ? 1 : 0, fpsSpeed));
+      if (game) { game.walk(Math.max(holdW || wasd ? 1 : 0, fpsSpeed)); game.guard(holdG || camGuard); }
       const v = $('#fv'), cv = $('#fvc'); if (!camOk || !v || !cam.landmarker || v.readyState < 2 || v.currentTime === cam.lastVideoTime) return;
       const now = performance.now(); if (now - cam.lastT < 33) return; cam.lastT = now; cam.lastVideoTime = v.currentTime;
       let res; try { res = cam.landmarker.detectForVideo(v, now); } catch (e) { return; }
       const img = res.landmarks && res.landmarks[0], world = res.worldLandmarks && res.worldLandmarks[0], w = v.videoWidth, h = v.videoHeight;
       if (cv.width !== w) { cv.width = w; cv.height = h; }
       const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
-      if (!img || !world) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Berdiri ±2 m, seluruh badan masuk frame'; return; }
+      if (!img || !world) { fpsSpeed = 0; okSince = 0; camGuard = false; if (!game) $('#fmsg').textContent = 'Berdiri ±2 m, seluruh badan masuk frame'; return; }
       drawSkeleton(ctx, img, w, h, true);
-      const o = ctrl.update({ img, world, w, h }, now / 1000);
-      if (!o.ok) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Badan belum penuh terlihat — mundur sedikit'; return; }
+      const o = ctrl.update({ img, world, w, h, energy: frameEnergy(v, img) }, now / 1000);
+      if (!o.ok) { fpsSpeed = 0; okSince = 0; camGuard = false; if (!game) $('#fmsg').textContent = 'Badan belum penuh terlihat — mundur sedikit'; return; }
       if (!game) { okSince = okSince || now; const left = 2 - (now - okSince) / 1000; $('#fmsg').textContent = left > 0 ? `Siap… ${Math.ceil(left)}` : 'GAS!'; if (left <= 0) { begin(); hideMsg(700); } return; }
       fpsSpeed = o.speed;
+      camGuard = !!o.guarding;
       for (const e of o.events) if (e.type === 'punch' || e.type === 'swing' || e.type === 'kick') { act(e.type, e.power); dbgLog.push(`${(now / 1000 % 1000).toFixed(1)} ${e.type} ${e.side}${e.dir ? ' ' + e.dir : ''} pw${(e.power || 0).toFixed(2)}`); if (dbgLog.length > 7) dbgLog.shift(); }
       else if (e.type === 'unstep') dbgLog.push(`${(now / 1000 % 1000).toFixed(1)} langkah dibatalkan (tendangan)`);
-      const dp = $('#fdbg'); if (dp && dp.style.display !== 'none') dp.textContent = dbgLog.join('\n') + '\n' + JSON.stringify(o.debug) + '\nlangkah ' + o.counts.step + ' pukul ' + o.counts.punch + ' ayun ' + o.counts.swing + ' tendang ' + o.counts.kick;
+      const dp = $('#fdbg'); if (dp && dp.style.display !== 'none') dp.textContent = dbgLog.join('\n') + '\n' + JSON.stringify(o.debug) + '\nTANGKIS ' + (o.guarding ? 'ON' : '-') + ' langkah ' + o.counts.step + ' pukul ' + o.counts.punch + ' ayun ' + o.counts.swing + ' tendang ' + o.counts.kick;
     };
     loop();
   }

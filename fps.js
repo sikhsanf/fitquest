@@ -8,7 +8,7 @@
     anjing:  { spd: 3.2, wind: 0.4, cd: 1.1, reach: 1.3 },
     raksasa: { spd: 0.7, wind: 0.95, cd: 1.9, reach: 2.1 },
   };
-  const HP_M = 0.85, DMG_M = 0.7, WALK_V = 2.4, AGGRO = 12, FIRST = 9, GAP = 5.5, END_PAD = 8, BLOCK = 1.0;
+  const GUARD_MUL = 0.3, HP_M = 0.85, DMG_M = 0.7, WALK_V = 2.4, AGGRO = 12, FIRST = 9, GAP = 5.5, END_PAD = 8, BLOCK = 1.0;
   const ACT = {
     punch: { range: 2.3, n: 1, mul: 0.8, knock: 0.5, stun: 0 },
     swing: { range: 3.3, n: 3, mul: 1.1, knock: 0.9, stun: 0 },
@@ -23,9 +23,10 @@
       enemies.push({ kind, x, hp, maxhp: hp, dmg, st: 'idle', t: 0, cd: 0.5, dead: 0, hit: 0, stun: 0, i });
       x += GAP + (kind === 'raksasa' ? 2 : 0);
     });
-    const S = { t: 0, p: 0, hp: ps.hp, maxhp: ps.hp, ps, enemies, endX: x + END_PAD, zone, status: 'run', kills: 0, hurt: 0, fx: [], v: 0, last: null, lastT: -9, stepPh: 0, walkSpeed: 0, acts: { punch: 0, swing: 0, kick: 0 } };
+    const S = { t: 0, p: 0, hp: ps.hp, maxhp: ps.hp, ps, enemies, endX: x + END_PAD, zone, status: 'run', kills: 0, hurt: 0, fx: [], v: 0, last: null, lastT: -9, stepPh: 0, walkSpeed: 0, acts: { punch: 0, swing: 0, kick: 0 }, guard: false, blocked: 0 };
     const alive = () => enemies.filter((e) => e.hp > 0);
     const foe = () => alive().find((e) => e.x > S.p - 0.5); // nearest ahead
+    S.setGuard = (v) => { S.guard = !!v; };
     S.walk = (sp) => { S.walkSpeed = Math.max(0, Math.min(1.8, sp || 0)); };
     S.act = (type, power) => {
       if (S.status !== 'run') return false;
@@ -65,7 +66,7 @@
           e.t += dt;
           if (e.t >= k.wind) {
             if (e.x - S.p <= k.reach + 0.5) {
-              const d = Math.max(1, Math.round(e.dmg - ps.def)); S.hp -= d; S.hurt = 0.4; S.fx.push({ k: 'hurt', v: d, t: 0 });
+              const d = Math.max(1, Math.round((e.dmg - ps.def) * (S.guard ? GUARD_MUL : 1))); S.hp -= d; if (S.guard) { S.blocked++; S.fx.push({ k: 'block', v: d, t: 0 }); } else { S.hurt = 0.4; S.fx.push({ k: 'hurt', v: d, t: 0 }); }
               if (S.hp <= 0) { S.hp = 0; S.status = 'lose'; }
             }
             e.st = 'chase'; e.cd = k.cd; e.t = 0;
@@ -127,6 +128,7 @@
     const ctl = {
       sim, stop() { cancelAnimationFrame(raf); ended = true; },
       walk: (v) => sim.walk(v), act: (t, p) => { const h = sim.act(t, p); ann = { t: 0, txt: t === 'punch' ? 'PUKUL' : t === 'swing' ? 'AYUN' : 'TENDANG', hit: h }; return h; },
+      guard: (v) => sim.setGuard(v),
       flee() { if (sim.status === 'run') sim.status = 'flee'; },
     };
     function corridor() {
@@ -202,6 +204,11 @@
       const t = sim.t - sim.lastT, k = sim.last, cx = VW / 2, by = VH;
       const wk = Math.min(1, sim.walkSpeed), bobx = Math.sin(sim.stepPh * 3.1) * 4 * wk, boby = Math.abs(Math.cos(sim.stepPh * 3.1)) * 5 * wk;
       const sc = VH > 260 ? 4.2 : 3.2, wid = opts.ps.weapon, hasW = wid !== 'tangan' && AV;
+      if (sim.guard) {
+        for (const m of [1, -1]) { ctx.save(); ctx.translate(cx + m * 18, by - 8); ctx.rotate(m * -0.75); ctx.fillStyle = col.ts; ctx.fillRect(-18, -10, 36, 220); ctx.fillStyle = col.t; ctx.fillRect(-18, -10, 30, 220); ctx.fillStyle = col.th; ctx.fillRect(-18, -10, 5, 220); ctx.restore(); }
+        drawFist(cx - 26, by - VH * 0.34, sc * 0.9, 0.5, false); drawFist(cx + 26, by - VH * 0.34, sc * 0.9, -0.5, true);
+        ctx.fillStyle = 'rgba(120,200,255,.18)'; ctx.fillRect(0, 0, VW, VH); return;
+      }
       if (k === 'kick' && t < 0.45) { const u = Math.sin(Math.min(1, t / 0.45) * Math.PI); const bx = cx, by2 = by - 4 - u * (VH * 0.42); ctx.fillStyle = '#20232c'; ctx.fillRect(bx - 28, by2, 56, VH - by2 + 20); ctx.fillStyle = '#2f3440'; ctx.fillRect(bx - 28, by2, 12, VH - by2 + 20); ctx.fillStyle = '#d8dbe0'; ctx.fillRect(bx - 31, by2 - 6, 62, 14); ctx.fillStyle = '#9aa0aa'; ctx.fillRect(bx - 31, by2 + 6, 62, 4); ctx.fillStyle = '#111'; ctx.fillRect(bx - 31, by2 + 10, 62, 5); }
       const punch = k === 'punch' && t < 0.3 ? Math.sin(Math.min(1, t / 0.3) * Math.PI) : 0, swing = k === 'swing' && t < 0.4 ? t / 0.4 : -1;
       // left hand: guard (jabs forward on PUKUL)
@@ -225,6 +232,7 @@
       for (const q of sim.fx) {
         if (q.k === 'dmg') { const d = q.x - sim.p; if (d < 0.3) continue; ctx.font = 'bold ' + (q.crit ? 16 : 12) + 'px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = q.crit ? '#ffd23f' : '#fff'; ctx.fillText(String(q.v), VW / 2, HY - proj(d) * 0.7 - q.t * 30); ctx.textAlign = 'left'; }
       }
+      for (const q of sim.fx) if (q.k === 'block') { ctx.font = 'bold 14px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#7fd0ff'; ctx.fillText('TANGKIS -' + q.v, VW / 2, HY + 14 - q.t * 22); ctx.textAlign = 'left'; }
       if (sim.hurt > 0) { ctx.fillStyle = `rgba(220,20,20,${sim.hurt * 0.9})`; ctx.fillRect(0, 0, VW, VH); }
       if (!sim.walkSpeed && sim.alive().length === 0 && sim.status === 'run') { ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center'; ctx.fillStyle = '#c6f432'; ctx.fillText('Jalan di tempat untuk maju ▶', VW / 2, 36); ctx.textAlign = 'left'; }
     }

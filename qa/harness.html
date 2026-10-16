@@ -1,0 +1,15 @@
+<script src="mediapipe/pose.js"></script><script>
+window.run = async function (dir, n) {
+  const pose = new Pose({ locateFile: (f) => 'mediapipe/' + f });
+  pose.setOptions({ modelComplexity: 0, smoothLandmarks: false, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+  let last = null; pose.onResults((r) => { last = r; }); await pose.initialize();
+  const out = [];
+  for (let i = 1; i <= n; i++) {
+    const img = new Image(); img.src = dir + '/' + String(i).padStart(4, '0') + '.jpg'; await img.decode();
+    const c = document.createElement('canvas'); c.width = 640; c.height = 360; c.getContext('2d').drawImage(img, 0, 0);
+    last = null; await pose.send({ image: c });
+    out.push(last && last.poseLandmarks ? { img: last.poseLandmarks.map((p) => [p.x, p.y, p.z, p.visibility]), world: last.poseWorldLandmarks.map((p) => [p.x, p.y, p.z]) } : null);
+  }
+  return out;
+};
+</script>

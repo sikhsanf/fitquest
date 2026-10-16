@@ -10,6 +10,8 @@ for(const z of G.ZONES){
   }
   console.log(z.id.padEnd(10),'rec',z.rec,row.join('  '));
 }
+// guard reduces damage
+{ const z=G.ZONES[1],p=ps(3); const run=(g)=>{let s=F.createSim(p,z,rnd);s.setGuard(g);let n=0;while(s.status==='run'&&n++<60*30){s.walk(0);s.step(1/60)}return s.maxhp-s.hp}; const a=run(false),b=run(true); console.log('guard dmg taken 30s: no-guard',a,'guard',b); if(!(b<a*0.5)){console.log('FAIL guard');bad++} }
 // assertions
 const wr=(z,L,rate,N=40)=>{let w=0;for(let i=0;i<N;i++)if(F.runBot(ps(L),z,rate,rnd).status==='win')w++;return w/N};
 for(const z of G.ZONES){ if(wr(z,z.rec,1.3)<0.85){console.log('FAIL rec win',z.id);bad++} }
