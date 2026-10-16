@@ -1,6 +1,6 @@
-const CACHE = 'fitquest-v10';
+const CACHE = 'fitquest-v11';
 const MP = ['pose.js', 'pose_landmark_lite.tflite', 'pose_solution_packed_assets.data', 'pose_solution_packed_assets_loader.js', 'pose_solution_simd_wasm_bin.js', 'pose_solution_simd_wasm_bin.wasm', 'pose_solution_simd_wasm_bin.data', 'pose_web.binarypb'].map((f) => 'mediapipe/' + f);
-const SHELL = ['./', 'index.html', 'data.js', 'detectors.js', 'avatar.js', 'exanim.js', 'music.js', 'motion.js', 'game.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
+const SHELL = ['./', 'index.html', 'data.js', 'detectors.js', 'avatar.js', 'exanim.js', 'music.js', 'motion.js', 'game.js', 'fps.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL).then(() => Promise.allSettled(MP.map((u) => c.add(u))))).then(() => self.skipWaiting()));

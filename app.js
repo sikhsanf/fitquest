@@ -657,13 +657,16 @@
     app.innerHTML = `
     <div class="hdr"><button class="ibtn" id="back" aria-label="Kembali">‹</button><div><h1>Reruntuhan</h1><p>Zombie menguasai kota. Naikkan level, baru bisa maju.</p></div><button class="ibtn" id="gtree" aria-label="Skill tree">🌳</button></div>
     <section class="card pstat"><span>❤ ${ps.hp}</span><span>⚔ ${ps.dmg}</span><span>🛡 ${ps.def}</span><span>⚡ ${ps.skills.length}</span><span>🔩 ${fmt(S.scrap)}</span></section>
+    <div class="modesw"><button data-m="side" class="${S.settings.fpsMode ? '' : 'on'}">🎮 Layar sentuh</button><button data-m="fps" class="${S.settings.fpsMode ? 'on' : ''}">🕹 Mode Gerak <small>kamera</small></button></div>
+    ${S.settings.fpsMode ? '<p class="mut small center">Mode Gerak: HP disandarkan ±2 m, <b>jalan di tempat</b> = maju, <b>pukul</b>, <b>ayun</b>, <b>tendang</b> betulan. Kamera dipakai.</p>' : ''}
     ${G.ZONES.map((z) => { const lock = L < z.rec, cl = S.cleared[z.id] || 0; return `<button class="zone ${lock ? 'lock' : ''}" data-z="${z.id}" ${lock ? 'disabled' : ''}>
       <div class="zt"><b>${lock ? '🔒 ' : cl ? '✅ ' : '⚔ '}${z.name}</b><span class="zlv">Lv ${z.rec}+</span></div>
       <div class="mut small">${lock ? `Butuh Lv ${z.rec}. Kamu baru Lv ${L} — gerak dulu di pagi hari.` : z.desc}</div>
       <div class="small zr">Hadiah 🔩${z.scrap}${cl ? ` · menang ${cl}x` : ''}</div></button>`; }).join('')}
     <p class="mut small center">Kalah itu nggak apa-apa — kamu kabur ke kamp. Tapi musuh nggak ngasih ampun kalau levelmu kurang.</p>`;
     $('#back').onclick = home; $('#gtree').onclick = () => skillTree();
-    app.querySelectorAll('.zone').forEach((b) => (b.onclick = () => battle(G.ZONES.find((z) => z.id === b.dataset.z))));
+    app.querySelectorAll('.modesw button').forEach((b) => (b.onclick = () => { S.settings.fpsMode = b.dataset.m === 'fps'; save(); gameMenu(); }));
+    app.querySelectorAll('.zone').forEach((b) => (b.onclick = () => { const z = G.ZONES.find((q) => q.id === b.dataset.z); (S.settings.fpsMode ? fpsBattle : battle)(z); }));
     window.scrollTo(0, 0);
   }
   const lookNow = () => { const b = S.body, l = lookOf(b); return { height: b.h, weight: b.w, gender: l.gender, hair: l.hair, shirt: l.shirt, armor: S.gear.armor, stages: Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(gInfo(k).L)])) }; };
@@ -687,7 +690,7 @@
     $('#bj').onpointerdown = (e) => { e.preventDefault(); GM.jump(); };
     $('#bf').onclick = () => GM.flee();
   }
-  function endBattle(zone, r) {
+  function endBattle(zone, r, retry) {
     if (GM) { GM.stop(); GM = null; }
     const win = r.status === 'win';
     S.scrap += r.scrap; if (win) S.cleared[zone.id] = (S.cleared[zone.id] || 0) + 1; save();
@@ -700,7 +703,57 @@
       <button class="btn big" id="rok">Ke kamp</button>${win ? '' : '<button class="btn ghost" id="rtry">Coba lagi</button>'}</div>`;
     document.body.appendChild(ov);
     $('#rok').onclick = () => { ov.remove(); home(); };
-    if ($('#rtry')) $('#rtry').onclick = () => { ov.remove(); battle(zone); };
+    if ($('#rtry')) $('#rtry').onclick = () => { ov.remove(); (retry || (() => battle(zone)))(); };
+  }
+
+  /* ---- Mode Gerak: first-person, body-controlled ---- */
+  let fpsRun = null;
+  async function fpsBattle(zone) {
+    stopCamp(); MU.play('battle');
+    const ps = myStats(), ctrl = FM.create({ sens: (S.settings.motionSens == null ? 100 : S.settings.motionSens) / 100 });
+    const ov = document.createElement('div'); ov.className = 'fpsbox'; ov.id = 'fpsov';
+    ov.innerHTML = `<canvas id="fc" class="pix fc"></canvas>
+      <div class="fpip" id="fpip"><div class="mirror"><video id="fv" playsinline muted></video><canvas id="fvc"></canvas></div></div>
+      <div class="fmsg" id="fmsg">Menyiapkan kamera…</div>
+      <button class="ibtn fq" id="fq" aria-label="Kabur">✕</button>
+      <div class="fkeys" id="fkeys"><button class="gbtn" id="fkw">🚶 JALAN</button><button class="gbtn" id="fkp">👊 PUKUL</button><button class="gbtn" id="fks">⚔️ AYUN</button><button class="gbtn" id="fkk">🦵 TENDANG</button></div>`;
+    document.body.appendChild(ov);
+    const hideMsg = (ms) => setTimeout(() => { const m = $('#fmsg'); if (m) m.style.display = 'none'; }, ms);
+    let game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
+    const finish = (r) => { if (ended) return; ended = true; cancelAnimationFrame(raf); stopCamera(); document.removeEventListener('keydown', kd); document.removeEventListener('keyup', ku); fpsRun = null; ov.remove(); endBattle(zone, r, () => fpsBattle(zone)); };
+    const begin = () => { if (game) return; game = window.FitFPS.play($('#fc'), { ps, zone, pal: palOf(), onEnd: finish }); };
+    const act = (t, p) => { if (!game) { begin(); hideMsg(0); } if (!game) return; const h = game.act(t, p); beep(h ? { punch: 520, swing: 700, kick: 220 }[t] : 140, 0.05); };
+    const kd = (e) => { if (e.repeat) return; const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 1; if (k === 'j') act('punch'); if (k === 'k') act('swing'); if (k === 'l') act('kick'); };
+    const ku = (e) => { const k = e.key.toLowerCase(); if (k === 'w' || k === 'arrowup') wasd = 0; };
+    document.addEventListener('keydown', kd); document.addEventListener('keyup', ku);
+    const fw = $('#fkw'); fw.onpointerdown = (e) => { e.preventDefault(); holdW = true; if (!game) { begin(); hideMsg(0); } }; fw.onpointerup = fw.onpointerleave = () => { holdW = false; };
+    $('#fkp').onpointerdown = (e) => { e.preventDefault(); act('punch'); }; $('#fks').onpointerdown = (e) => { e.preventDefault(); act('swing'); }; $('#fkk').onpointerdown = (e) => { e.preventDefault(); act('kick'); };
+    $('#fq').onclick = () => { if (game) game.flee(); else finish({ status: 'flee', kills: 0, scrap: 0 }); };
+    fpsRun = { finish };
+    const r = await startCamera($('#fv'));
+    if (ended) return;
+    camOk = r.ok;
+    if (!r.ok) { $('#fmsg').textContent = '📷 ' + r.reason + ' — pakai tombol di bawah'; $('#fpip').style.display = 'none'; begin(); hideMsg(3500); }
+    else $('#fkeys').classList.add('small');
+    let okSince = 0;
+    const loop = () => {
+      if (ended) return; raf = requestAnimationFrame(loop);
+      if (game) game.walk(Math.max(holdW || wasd ? 1 : 0, fpsSpeed));
+      const v = $('#fv'), cv = $('#fvc'); if (!camOk || !v || !cam.landmarker || v.readyState < 2 || v.currentTime === cam.lastVideoTime) return;
+      const now = performance.now(); if (now - cam.lastT < 33) return; cam.lastT = now; cam.lastVideoTime = v.currentTime;
+      let res; try { res = cam.landmarker.detectForVideo(v, now); } catch (e) { return; }
+      const img = res.landmarks && res.landmarks[0], world = res.worldLandmarks && res.worldLandmarks[0], w = v.videoWidth, h = v.videoHeight;
+      if (cv.width !== w) { cv.width = w; cv.height = h; }
+      const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
+      if (!img || !world) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Berdiri ±2 m, seluruh badan masuk frame'; return; }
+      drawSkeleton(ctx, img, w, h, true);
+      const o = ctrl.update({ img, world, w, h }, now / 1000);
+      if (!o.ok) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Badan belum penuh terlihat — mundur sedikit'; return; }
+      if (!game) { okSince = okSince || now; const left = 2 - (now - okSince) / 1000; $('#fmsg').textContent = left > 0 ? `Siap… ${Math.ceil(left)}` : 'GAS!'; if (left <= 0) { begin(); hideMsg(700); } return; }
+      fpsSpeed = o.speed;
+      for (const e of o.events) if (e.type !== 'step') act(e.type, e.power);
+    };
+    loop();
   }
 
   /* ---- skill tree ---- */
@@ -816,7 +869,7 @@
   }
 
   /* ---------------- boot ---------------- */
-  window.__fq = { motionTest, music: MU, skillTree, askConfirm, gameMenu, shop, battle, bodyView, state: () => S, buildTimeline, levelInfo, mLevel, routineStats, tick, startWorkout, home, onboarding, revealScreen, settings, groupLevels, gInfo, runner: () => R };
+  window.__fq = { fpsBattle, motionTest, music: MU, skillTree, askConfirm, gameMenu, shop, battle, bodyView, state: () => S, buildTimeline, levelInfo, mLevel, routineStats, tick, startWorkout, home, onboarding, revealScreen, settings, groupLevels, gInfo, runner: () => R };
   applyMusic();
   home();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
