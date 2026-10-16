@@ -715,11 +715,11 @@
     ov.innerHTML = `<canvas id="fc" class="pix fc"></canvas>
       <div class="fpip" id="fpip"><div class="mirror"><video id="fv" playsinline muted></video><canvas id="fvc"></canvas></div></div>
       <div class="fmsg" id="fmsg">Menyiapkan kamera…</div>
-      <button class="ibtn fq" id="fq" aria-label="Kabur">✕</button>
+      <button class="ibtn fq" id="fq" aria-label="Kabur">✕</button><button class="ibtn fq2" id="fqd" aria-label="Debug">🐞</button><pre class="fdbg" id="fdbg" style="display:none"></pre>
       <div class="fkeys" id="fkeys"><button class="gbtn" id="fkw">🚶 JALAN</button><button class="gbtn" id="fkp">👊 PUKUL</button><button class="gbtn" id="fks">⚔️ AYUN</button><button class="gbtn" id="fkk">🦵 TENDANG</button></div>`;
     document.body.appendChild(ov);
     const hideMsg = (ms) => setTimeout(() => { const m = $('#fmsg'); if (m) m.style.display = 'none'; }, ms);
-    let game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
+    const dbgLog = []; let game = null, ended = false, camOk = false, wasd = 0, holdW = false, raf = 0, fpsSpeed = 0;
     const finish = (r) => { if (ended) return; ended = true; cancelAnimationFrame(raf); stopCamera(); document.removeEventListener('keydown', kd); document.removeEventListener('keyup', ku); fpsRun = null; ov.remove(); endBattle(zone, r, () => fpsBattle(zone)); };
     const begin = () => { if (game) return; game = window.FitFPS.play($('#fc'), { ps, zone, pal: palOf(), onEnd: finish }); };
     const act = (t, p) => { if (!game) { begin(); hideMsg(0); } if (!game) return; const h = game.act(t, p); beep(h ? { punch: 520, swing: 700, kick: 220 }[t] : 140, 0.05); };
@@ -729,6 +729,7 @@
     const fw = $('#fkw'); fw.onpointerdown = (e) => { e.preventDefault(); holdW = true; if (!game) { begin(); hideMsg(0); } }; fw.onpointerup = fw.onpointerleave = () => { holdW = false; };
     $('#fkp').onpointerdown = (e) => { e.preventDefault(); act('punch'); }; $('#fks').onpointerdown = (e) => { e.preventDefault(); act('swing'); }; $('#fkk').onpointerdown = (e) => { e.preventDefault(); act('kick'); };
     $('#fq').onclick = () => { if (game) game.flee(); else finish({ status: 'flee', kills: 0, scrap: 0 }); };
+    $('#fqd').onclick = () => { const d = $('#fdbg'); d.style.display = d.style.display === 'none' ? '' : 'none'; };
     fpsRun = { finish };
     const r = await startCamera($('#fv'));
     if (ended) return;
@@ -751,7 +752,9 @@
       if (!o.ok) { fpsSpeed = 0; okSince = 0; if (!game) $('#fmsg').textContent = 'Badan belum penuh terlihat — mundur sedikit'; return; }
       if (!game) { okSince = okSince || now; const left = 2 - (now - okSince) / 1000; $('#fmsg').textContent = left > 0 ? `Siap… ${Math.ceil(left)}` : 'GAS!'; if (left <= 0) { begin(); hideMsg(700); } return; }
       fpsSpeed = o.speed;
-      for (const e of o.events) if (e.type !== 'step') act(e.type, e.power);
+      for (const e of o.events) if (e.type === 'punch' || e.type === 'swing' || e.type === 'kick') { act(e.type, e.power); dbgLog.push(`${(now / 1000 % 1000).toFixed(1)} ${e.type} ${e.side}${e.dir ? ' ' + e.dir : ''} pw${(e.power || 0).toFixed(2)}`); if (dbgLog.length > 7) dbgLog.shift(); }
+      else if (e.type === 'unstep') dbgLog.push(`${(now / 1000 % 1000).toFixed(1)} langkah dibatalkan (tendangan)`);
+      const dp = $('#fdbg'); if (dp && dp.style.display !== 'none') dp.textContent = dbgLog.join('\n') + '\n' + JSON.stringify(o.debug) + '\nlangkah ' + o.counts.step + ' pukul ' + o.counts.punch + ' ayun ' + o.counts.swing + ' tendang ' + o.counts.kick;
     };
     loop();
   }

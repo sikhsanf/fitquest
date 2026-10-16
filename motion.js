@@ -17,7 +17,7 @@
   /* tunables (distances in torso lengths T, times in seconds). `sens` > 1 = more sensitive. */
   const TUNE = {
     stepUp: 0.2, stepDown: 0.08, ankleUp: 0.32, stepRefr: 0.18, walkHold: 0.9,
-    kickRise: 0.9, kickAngle: 135, kickRefr: 0.6,
+    kickRise: 0.75, kickAngle: 125, kickRefr: 0.6, armQuiet: 0.35,
     punchExtHi: 0.86, punchExtLo: 0.68, punchWin: 0.38, punchRefr: 0.32, punchYLo: -0.85, punchYHi: 0.55,
     swingAng: 95, swingWin: 0.32, swingRefr: 0.45, swingMinR: 0.5, swingMaxExt: 0.3,
   };
@@ -69,11 +69,13 @@
           // a kick is a high, straight leg: do not also count it as a step
           const kicking = (ank[s] || 0) > TUNE.kickRise / sens && (kang[s] || 0) > TUNE.kickAngle;
           S.legUp[s] = true; S.lastStep[s] = t;
-          if (!kicking) { S.counts.step++; S.steps.push(t); ev.push({ type: 'step', side: s, t }); }
+          if (!kicking && t - S.lastKick > 0.55) { S.counts.step++; S.steps.push(t); ev.push({ type: 'step', side: s, t }); }
         } else if (S.legUp[s] && lift[s] < down) S.legUp[s] = false;
         // kick: foot well above the planted foot with a (nearly) straight knee
         if (S.kickArmed[s] && (ank[s] || 0) > TUNE.kickRise / sens && (kang[s] || 0) > TUNE.kickAngle && t - S.lastKick > TUNE.kickRefr) {
-          S.kickArmed[s] = false; S.lastKick = t; S.counts.kick++; ev.push({ type: 'kick', side: s, power: clamp((ank[s] - TUNE.kickRise) + 0.5, 0.3, 1), t });
+          S.kickArmed[s] = false; S.lastKick = t; S.counts.kick++;
+          if (S.lastStep[s] > t - 0.45 && S.steps.length && S.counts.step > 0 && S.steps[S.steps.length - 1] === S.lastStep[s]) { S.steps.pop(); S.counts.step--; ev.push({ type: 'unstep', side: s, t }); } // the ramp of a kick looked like a step
+          ev.push({ type: 'kick', side: s, power: clamp((ank[s] - TUNE.kickRise) + 0.5, 0.3, 1), t });
         } else if (!S.kickArmed[s] && (ank[s] || 0) < 0.5) S.kickArmed[s] = true;
       }
       S.steps = S.steps.filter((x) => t - x < 1.6);
@@ -82,6 +84,8 @@
       const speed = walking ? clamp(recent / 2, 0.3, 1.6) : 0; // 1.0 = one step every 0.5 s
 
       // ---------------- arms: punch + swing ----------------
+      const armsQuiet = t - S.lastKick < TUNE.armQuiet; // the body lurches during a kick: arms are not input
+      const marching = S.steps.length > 0 && t - S.steps[S.steps.length - 1] < 0.5; // arm-pump while marching is not a swing
       for (const s of ['l', 'r']) {
         if (!(vis(f, I[s + 'sh']) && vis(f, I[s + 'el']) && vis(f, I[s + 'wr']))) { hist[s].length = 0; continue; }
         const sh = W(s + 'sh'), el = W(s + 'el'), wr = W(s + 'wr');
@@ -93,17 +97,17 @@
         const win = (w) => h.filter((p) => t - p.t <= w);
         // punch: arm snaps from folded to straight at about shoulder height
         const pw = win(TUNE.punchWin), minExt = Math.min(...pw.map((p) => p.ext));
-        if (ext > TUNE.punchExtHi - (sens - 1) * 0.06 && minExt < TUNE.punchExtLo + (sens - 1) * 0.06 && yRel > TUNE.punchYLo && yRel < TUNE.punchYHi && t - S.lastPunch[s] > TUNE.punchRefr && t - S.lastSwing[s] > 0.3) {
+        if (!armsQuiet && ext > TUNE.punchExtHi + (marching ? 0.03 : 0) - (sens - 1) * 0.06 && minExt < TUNE.punchExtLo + (sens - 1) * 0.06 && yRel > TUNE.punchYLo && yRel < TUNE.punchYHi && t - S.lastPunch[s] > TUNE.punchRefr && t - S.lastSwing[s] > 0.3) {
           S.lastPunch[s] = t; S.counts.punch++; ev.push({ type: 'punch', side: s, power: clamp((ext - minExt) * 1.4, 0.4, 1), t });
         }
         // swing: wrist sweeps a big arc around the shoulder while the arm stays out
         const sw = win(TUNE.swingWin);
-        if (sw.length >= 3 && t - S.lastSwing[s] > TUNE.swingRefr && t - S.lastPunch[s] > 0.3) {
+        if (!armsQuiet && sw.length >= 3 && t - S.lastSwing[s] > TUNE.swingRefr && t - S.lastPunch[s] > 0.3) {
           const back = (rot) => S.swingDir[s] && rot !== S.swingDir[s] && t - S.lastSwing[s] < 0.7; // hand returning after a swing is not a new swing
           let d = 0; for (let i = 1; i < sw.length; i++) d += wrapA(sw[i].th - sw[i - 1].th);
           const meanR = sw.reduce((a, p) => a + p.r2, 0) / sw.length, dExt = Math.abs(sw[sw.length - 1].ext - sw[0].ext);
           dbg['arc' + s] = Math.round(d / D2R);
-          if (Math.abs(d) > (TUNE.swingAng / sens) * D2R && meanR > TUNE.swingMinR && dExt < TUNE.swingMaxExt) {
+          if (Math.abs(d) > ((TUNE.swingAng * (marching ? 1.3 : 1)) / sens) * D2R && meanR > (marching ? 0.68 : TUNE.swingMinR) && dExt < TUNE.swingMaxExt) {
             const dx = sw[sw.length - 1].x - sw[0].x, dir = dx >= 0 ? 'r' : 'l', rot = d > 0 ? 'cw' : 'ccw'; if (back(rot)) continue;
             S.lastSwing[s] = t; S.counts.swing++; S.swingDir[s] = rot;
             ev.push({ type: 'swing', side: s, dir, power: clamp(Math.abs(d) / (120 * D2R), 0.5, 1), t }); // dir = way the hand travels in the image

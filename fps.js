@@ -104,6 +104,7 @@
 
   /* ------------------------------ view ------------------------------ */
   const VW = 320; let VH = 180, HY = 82;
+  const hash = (n) => { const x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
   const cache = {};
   function spr(key, mk, sc) {
     if (cache[key]) return cache[key];
@@ -140,6 +141,7 @@
         const y = HY + 1 + proj(z) * 0.55 + bob; ctx.fillStyle = i % 2 ? '#3b3128' : '#241d18'; ctx.fillRect(0, y, VW, Math.max(1, proj(z) * 0.1));
         const wx = proj(z) * 1.1; ctx.fillStyle = '#463b30'; ctx.fillRect(VW / 2 - wx, y, 2, 2); ctx.fillRect(VW / 2 + wx - 2, y, 2, 2);
       }
+      for (let i = 0; i < 12; i++) { const idx = Math.floor(sim.p) + i, z = i + 1 - (((sim.p % 1) + 1) % 1); if (z < 0.5) continue; const hv = hash(idx * 7.3); if (hv > 0.45) continue; const y = HY + proj(z) * 0.55 + bob, wx = VW / 2 + (hv < 0.22 ? -1 : 1) * proj(z) * (0.55 + hv), sz = Math.max(2, proj(z) * 0.14); ctx.fillStyle = '#1b1612'; ctx.fillRect(wx, y, sz * 1.4, sz * 0.6); ctx.fillStyle = '#3d3329'; ctx.fillRect(wx + 1, y - sz * 0.3, sz, sz * 0.4); }
       // side walls: panels slide with the player
       for (let i = 0; i < 16; i++) {
         const z = i + 1 - (((sim.p % 1) + 1) % 1); if (z < 0.4) continue; const s = proj(z), s2 = proj(z + 1);
@@ -148,6 +150,13 @@
         ctx.fillRect(Math.min(x1, x2), HY - s * 1.1, Math.abs(x1 - x2) + 1, s * 1.6 + s * 0.5);
         ctx.fillRect(VW - Math.max(x1, x2) - 1, HY - s * 1.1, Math.abs(x1 - x2) + 1, s * 1.6 + s * 0.5);
         ctx.fillStyle = `rgba(0,0,0,.35)`; ctx.fillRect(x1, HY - s * 1.1, 1, s * 2.1); ctx.fillRect(VW - x1 - 1, HY - s * 1.1, 1, s * 2.1);
+        { const idx = Math.floor(sim.p) + i; for (const side of [0, 1]) { const hv = hash(idx * 2 + side), wL = Math.abs(x1 - x2) + 1, xx = side ? VW - Math.max(x1, x2) - 1 : Math.min(x1, x2), top = HY - s * 1.1, hh = s * 2.1;
+          if (wL < 3) continue;
+          if (hv < 0.18) { ctx.fillStyle = `rgba(14,12,18,${0.85})`; ctx.fillRect(xx + wL * 0.2, top + hh * 0.28, wL * 0.6, hh * 0.72); ctx.fillStyle = `rgba(120,100,80,${0.5 * shade + 0.1})`; ctx.fillRect(xx + wL * 0.2, top + hh * 0.28, wL * 0.6, Math.max(1, hh * 0.04)); }
+          else if (hv < 0.33) { ctx.fillStyle = `rgba(255,200,110,${0.22 * shade + 0.05})`; ctx.fillRect(xx + wL * 0.25, top + hh * 0.2, wL * 0.5, hh * 0.22); ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(xx + wL * 0.25, top + hh * 0.2, 1, hh * 0.22); ctx.fillRect(xx + wL * 0.5, top + hh * 0.2, 1, hh * 0.22); }
+          else if (hv < 0.42) { ctx.fillStyle = `rgba(190,40,40,${0.5 * shade + 0.1})`; ctx.fillRect(xx + wL * 0.15, top + hh * 0.45, wL * 0.7, Math.max(1, hh * 0.05)); ctx.fillRect(xx + wL * 0.3, top + hh * 0.38, wL * 0.1, hh * 0.2); }
+          else if (hv < 0.5) { ctx.fillStyle = `rgba(70,50,35,${0.8})`; ctx.fillRect(xx + wL * 0.1, top + hh * 0.78, wL * 0.8, hh * 0.22); ctx.fillStyle = `rgba(110,84,60,${0.7})`; ctx.fillRect(xx + wL * 0.2, top + hh * 0.7, wL * 0.5, hh * 0.1); }
+        } }
         if (i % 4 === 0) { ctx.fillStyle = `rgba(255,190,90,${0.55 * shade + 0.1})`; ctx.fillRect(x1 + 2, HY - s * 0.7, Math.max(2, s * 0.12), Math.max(3, s * 0.3)); ctx.fillRect(VW - x1 - 2 - Math.max(2, s * 0.12), HY - s * 0.7, Math.max(2, s * 0.12), Math.max(3, s * 0.3)); }
       }
       // goal gate
@@ -176,21 +185,36 @@
         }
       }
     }
+    const FIST = ['..kkkkkkkkkk..', '.kkhkhkhkhkkk.', 'kkkkkkkkkkkkkk', 'kkskkskkskkskk', 'kkkkkkkkkkkkkk', 'kkkkkkkkkkkkkk', '.kkkkkkkkkkks.', '..kkkkkkkkss..'];
+    const pal = opts.pal || {}, SL = { jaket: 'ja', rompi: 'rv', pelindung: 'mt', baja: 'st' }[opts.look && opts.look.armor] || 't';
+    const col = { k: pal.k || '#e0ac82', h: pal.kh || '#f0c9a6', s: pal.ks || '#b0805c', t: pal[SL] || '#3a6fb0', th: pal[SL + 'h'] || pal.th || '#5a8fd0', ts: pal[SL + 's'] || pal.ts || '#274f86' };
+    let fistImg = null;
+    function drawFist(x, y, sc, rot, mirror) {
+      if (!fistImg) { fistImg = document.createElement('canvas'); fistImg.width = 14; fistImg.height = 8; const g = fistImg.getContext('2d'); FIST.forEach((r, ry) => [...r].forEach((c, rx) => { if (c === '.') return; g.fillStyle = col[c]; g.fillRect(rx, ry, 1, 1); })); }
+      ctx.save(); ctx.translate(x, y); ctx.rotate(rot); if (mirror) ctx.scale(-1, 1);
+      const w = 14 * sc, h = 8 * sc; // sleeve first (behind the fist), running off the bottom of the screen
+      ctx.fillStyle = col.ts; ctx.fillRect(-w * 0.42 + sc, h * 0.2, w * 0.84, 200); ctx.fillStyle = col.t; ctx.fillRect(-w * 0.42, h * 0.2, w * 0.84 - sc, 200); ctx.fillStyle = col.th; ctx.fillRect(-w * 0.42, h * 0.2, sc * 1.4, 200);
+      ctx.fillStyle = col.ts; ctx.fillRect(-w * 0.46, h * 0.7, w * 0.92, sc * 1.2); // cuff
+      ctx.imageSmoothingEnabled = false; ctx.drawImage(fistImg, -w / 2, -h * 0.35, w, h);
+      ctx.restore();
+    }
     function hands() {
       const t = sim.t - sim.lastT, k = sim.last, cx = VW / 2, by = VH;
-      const bobx = Math.sin(sim.stepPh * 3.1) * 3 * Math.min(1, sim.walkSpeed), boby = Math.abs(Math.cos(sim.stepPh * 3.1)) * 3 * Math.min(1, sim.walkSpeed);
-      const fist = (x, y, s) => { ctx.fillStyle = '#00000044'; ctx.fillRect(x - s / 2 + 3, y - s / 2 + 3, s, s * 0.9); ctx.fillStyle = skin; ctx.fillRect(x - s / 2, y - s / 2, s, s * 0.9); ctx.fillStyle = '#00000033'; ctx.fillRect(x - s / 2, y + s * 0.2, s, s * 0.25); ctx.fillStyle = '#ffffff33'; ctx.fillRect(x - s / 2 + 2, y - s / 2 + 2, s * 0.5, 3); };
-      const wid = opts.ps.weapon;
-      if (k === 'kick' && t < 0.4) { const u = Math.sin(Math.min(1, t / 0.4) * Math.PI); ctx.fillStyle = '#2b2f3a'; ctx.fillRect(cx - 24, by - 12 - u * 70, 48, 30 + u * 10); ctx.fillStyle = '#e9e9e9'; ctx.fillRect(cx - 24, by - 12 - u * 70 + 22 + u * 10, 48, 8); return; }
-      const px = k === 'punch' && t < 0.3 ? Math.sin(Math.min(1, t / 0.3) * Math.PI) : 0;
-      const sw = k === 'swing' && t < 0.4 ? t / 0.4 : -1;
-      // left fist (idle guard) / right fist or weapon
-      fist(cx - 62 + bobx, by - 20 + boby - (k === 'punch' ? px * 60 : 0), 34 + (k === 'punch' ? px * 22 : 0));
-      if (wid !== 'tangan' && AV) {
-        const ws = spr('w:' + wid, () => AV.weapon(wid), 4);
-        ctx.save(); ctx.translate(cx + 66 + bobx, by + 6 + boby); ctx.rotate(sw >= 0 ? -1.1 + sw * 2.6 : -0.25 - px * 0.4); ctx.drawImage(ws, -ws.width / 2, -ws.height + 6); ctx.restore();
-        if (sw >= 0) { ctx.fillStyle = `rgba(255,255,255,${0.5 * (1 - sw)})`; ctx.fillRect(cx - 90 + sw * 160, 40 + (1 - Math.abs(sw - 0.5) * 2) * 10, 60, 5); }
-      } else fist(cx + 62 + bobx - (sw >= 0 ? 80 - sw * 160 : 0), by - 20 + boby - (k === 'punch' ? px * 50 : 0) - (sw >= 0 ? Math.sin(sw * Math.PI) * 40 : 0), 34 + (k === 'punch' ? px * 22 : 0));
+      const wk = Math.min(1, sim.walkSpeed), bobx = Math.sin(sim.stepPh * 3.1) * 4 * wk, boby = Math.abs(Math.cos(sim.stepPh * 3.1)) * 5 * wk;
+      const sc = VH > 260 ? 4.2 : 3.2, wid = opts.ps.weapon, hasW = wid !== 'tangan' && AV;
+      if (k === 'kick' && t < 0.45) { const u = Math.sin(Math.min(1, t / 0.45) * Math.PI); const bx = cx, by2 = by - 4 - u * (VH * 0.42); ctx.fillStyle = '#20232c'; ctx.fillRect(bx - 28, by2, 56, VH - by2 + 20); ctx.fillStyle = '#2f3440'; ctx.fillRect(bx - 28, by2, 12, VH - by2 + 20); ctx.fillStyle = '#d8dbe0'; ctx.fillRect(bx - 31, by2 - 6, 62, 14); ctx.fillStyle = '#9aa0aa'; ctx.fillRect(bx - 31, by2 + 6, 62, 4); ctx.fillStyle = '#111'; ctx.fillRect(bx - 31, by2 + 10, 62, 5); }
+      const punch = k === 'punch' && t < 0.3 ? Math.sin(Math.min(1, t / 0.3) * Math.PI) : 0, swing = k === 'swing' && t < 0.4 ? t / 0.4 : -1;
+      // left hand: guard (jabs forward on PUKUL)
+      drawFist(cx - 58 + bobx + punch * 40, by - 18 + boby - punch * (VH * 0.3), sc + punch * 2.6, 0.12 - punch * 0.15, false);
+      if (hasW) {
+        const ws = spr('w:' + wid, () => AV.weapon(wid), 5);
+        ctx.save(); ctx.translate(cx + 62 + bobx, by + 10 + boby); ctx.rotate(swing >= 0 ? -1.2 + swing * 2.7 : -0.28 - punch * 0.3); ctx.imageSmoothingEnabled = false; ctx.drawImage(ws, -ws.width / 2, -ws.height + 8); ctx.restore();
+        drawFist(cx + 62 + bobx, by + 6 + boby, sc * 0.9, 0, true);
+        if (swing >= 0) { ctx.fillStyle = `rgba(255,255,255,${0.45 * (1 - swing)})`; ctx.fillRect(cx - 110 + swing * 200, HY - 30 + Math.sin(swing * Math.PI) * -14, 70, 6); ctx.fillRect(cx - 90 + swing * 190, HY - 20, 50, 3); }
+      } else {
+        const sx = swing >= 0 ? -70 + swing * 140 : 0, sy = swing >= 0 ? -Math.sin(swing * Math.PI) * 50 : 0;
+        drawFist(cx + 58 + bobx + sx * 0.6, by - 18 + boby + sy - punch * 10, sc, -0.12, true);
+      }
     }
     function hud() {
       ctx.fillStyle = '#000a'; ctx.fillRect(0, 0, VW, 14);

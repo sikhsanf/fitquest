@@ -66,6 +66,10 @@ const ease = (u) => 0.5 - 0.5 * Math.cos(Math.PI * Math.min(1, Math.max(0, u)));
 }
 // 7. standing and shaking arms/hanging arms do not punch
 { const sp = (t) => { const s = idleSpec(); const a = Math.sin(t * 6) * 0.25; s.arms.l = [[a, 1, 0], [a, 1, 0]]; s.arms.r = [[-a, 1, 0], [-a, 1, 0]]; return s; }; const r = run(sp, 4); check('arm wiggle at sides: no events', r.punch + r.swing + r.kick === 0, { p: r.punch, w: r.swing, k: r.kick }); }
+// 7b. marching with a hard arm pump (elbows bent ~90, forearms alternate) must not punch/swing
+{ const sp = (t) => { const s = idleSpec(); for (const [k, ph] of [['l', 0], ['r', Math.PI]]) { const a = Math.max(0, Math.sin((2 * Math.PI * t) / 0.8 + ph)) * 80 * D2R; s.legs[k] = [[0, Math.cos(a), -Math.sin(a)], [0, 1, 0.1]]; const w = Math.sin((2 * Math.PI * t) / 0.8 + ph + Math.PI); s.arms[k] = [[0.1, 0.9, -0.1 * w], [0.05, -0.4 - 0.5 * w, -0.9]]; } return s; }; const r = run(sp, 6); check('march + arm pump: no punch/swing/kick', r.punch + r.swing + r.kick === 0 && r.step >= 8, { s: r.step, p: r.punch, w: r.swing, k: r.kick }); }
+// 6b. a kick does not leave a phantom step behind
+{ const sp = (t) => { const s = idleSpec(); const u = (t % 1.6) / 0.5, k = u < 1 ? Math.sin(Math.PI * u) : 0; const a = 72 * D2R * k; const q = (1 - Math.min(1, k * 2)) * 0.8; s.legs.r = [[0, Math.cos(a), -Math.sin(a)], [0, Math.cos(a - q), -Math.sin(a - q)]]; return s; }; const r = run(sp, 6.4); const un = r.ev.filter((e) => e.type === 'unstep').length; check('kicks leave no net steps', r.kick >= 3 && r.step - un <= 1, { k: r.kick, s: r.step, un }); }
 // 8. missing body -> not ok
 { const m = M.create(); const f = frame(idleSpec(), 0); f.img[I.lsh].visibility = 0.1; const o = m.update(f, 0); check('lost shoulders -> ok=false', o.ok === false); }
 console.log(fails ? `\n${fails} FAILED` : '\nALL PASSED'); process.exit(fails ? 1 : 0);
