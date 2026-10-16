@@ -7,6 +7,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <title>FitQuest</title>
+
+
+
 <style>
 :root{--bg:#0f1420;--card:#1a2233;--card2:#263049;--line:#05070c;--txt:#f2efe6;--mut:#8f9ab0;--acc:#ffc933;--acc2:#ff7a45;--bad:#ff5d5d;--good:#6ee07a;--font:ui-monospace,"SF Mono","Cascadia Mono",Menlo,Consolas,"Courier New",monospace;--px:0 0 0 3px var(--line),4px 4px 0 3px var(--line)}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
@@ -93,6 +96,7 @@ h3.q{text-align:center;font-size:17px;margin:4px 8px 16px;line-height:1.35}
 .sub{text-align:center;color:var(--mut);font-size:14px;padding:0 8px}
 .cam{position:relative;width:min(100%,calc(58dvh * var(--arn,1.333)));aspect-ratio:var(--ar,4/3);margin:10px auto;overflow:hidden;background:#000;box-shadow:0 0 0 3px var(--line),0 0 0 6px var(--card2)}
 .run.camon .timer{font-size:56px;margin:0}.run.camon .sub,.run.camon .chips{display:none}.run.camon .cam{width:min(100%,calc(max(46dvh,calc(100dvh - 330px)) * var(--arn,1.333)));margin:6px auto}
+.exov{position:absolute;left:8px;bottom:58px;width:30%;max-width:132px;aspect-ratio:60/66;background:rgba(10,14,28,.62);box-shadow:0 0 0 2px var(--line);z-index:2;pointer-events:none}
 .cam .fsbtn{position:absolute;top:6px;right:6px;z-index:3;width:34px;height:34px;background:rgba(0,0,0,.6);color:#fff;font-size:18px;box-shadow:none;padding:0}
 .hud #hudTime,.hud #hudName{display:none}.hud #hudTime{font-size:34px}
 .cam.full{position:fixed;inset:0;z-index:20;width:100vw;height:100dvh;aspect-ratio:auto;margin:0;box-shadow:none}.cam.full .mirror video,.cam.full .mirror canvas{object-fit:contain}.cam.full .hud #hudTime{display:inline}.cam.full .hud{flex-wrap:wrap;gap:4px}.cam.full .hud #hudName{display:block;width:100%;order:3;text-align:center;font-size:15px;letter-spacing:1px}.cam.full .fsbtn{top:calc(env(safe-area-inset-top,0px) + 8px)}
@@ -209,8 +213,7 @@ input[type=range]{width:100%;accent-color:#ffc933;height:28px}
 <div id="splash"><div class="sp-by">(ayah)</div><div class="sp-brand">learnersfam</div><div class="sp-line"></div><div class="sp-game">FITQUEST</div><div class="sp-skip">tap untuk lanjut</div></div>
 <div id="app"></div>
 <script>(function(){var s=document.getElementById("splash");if(!s)return;var d=function(){s.classList.add("out");setTimeout(function(){s.remove()},700)};s.onclick=d;setTimeout(d,2900)})()</script>
-<script>
-window.FIT_DATA = {
+<script>window.FIT_DATA = {
  "version": 1,
  "muscles": [
   "quads",
@@ -638,10 +641,8 @@ window.FIT_DATA = {
   }
  }
 };
-
 </script>
-<script>
-/* FitQuest — pose detectors (pure logic, no DOM). Input: MediaPipe Pose landmarks. */
+<script>/* FitQuest — pose detectors (pure logic, no DOM). Input: MediaPipe Pose landmarks. */
 (function (root) {
   'use strict';
   const I = { nose: 0, lsh: 11, rsh: 12, lel: 13, rel: 14, lwr: 15, rwr: 16, lhip: 23, rhip: 24, lkn: 25, rkn: 26, lan: 27, ran: 28 };
@@ -860,10 +861,8 @@ window.FIT_DATA = {
   root.FitDetectors = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
-
 </script>
-<script>
-/* FitQuest — pixel art generator: avatar (height/weight/hair/clothes/muscle stages), mood persons, monsters, weapons. */
+<script>/* FitQuest — pixel art generator: avatar (height/weight/hair/clothes/muscle stages), mood persons, monsters, weapons. */
 (function (root) {
   'use strict';
   const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
@@ -1384,10 +1383,8 @@ window.FIT_DATA = {
   root.FitAvatar = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
-
 </script>
-<script>
-/* FitQuest — exercise animations: poses (IK-driven so hands/feet stay planted) for the side-view avatar. */
+<script>/* FitQuest — exercise animations: poses (IK-driven so hands/feet stay planted) for the side-view avatar. */
 (function (root) {
   'use strict';
   const R2D = 180 / Math.PI, D2R = Math.PI / 180;
@@ -1517,10 +1514,8 @@ window.FIT_DATA = {
   root.FitExAnim = { pose, kindOf, ik, PERIOD };
   if (typeof module !== 'undefined' && module.exports) module.exports = root.FitExAnim;
 })(typeof window !== 'undefined' ? window : globalThis);
-
 </script>
-<script>
-/* FitQuest — procedural background music (WebAudio, no audio files).
+<script>/* FitQuest — procedural background music (WebAudio, no audio files).
    Five tracks: lemes / siap / api (workout moods), battle (game), camp (home).
    16-step bars; layers (kick, bass, hats, clap, lead...) enter bar by bar so each track builds energy. */
 (function (root) {
@@ -1698,10 +1693,8 @@ window.FIT_DATA = {
   root.FitMusic = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
-
 </script>
-<script>
-/* FitQuest — motion controller: turns MediaPipe pose frames into game inputs (walk-in-place, punch, swing, kick).
+<script>/* FitQuest — motion controller: turns MediaPipe pose frames into game inputs (walk-in-place, punch, swing, kick).
    Pure logic, no DOM. Works in WORLD landmarks (metres, hip-centred) so it does not depend on how far the phone is.
    Frame: { img:[33 {x,y,z,visibility}], world:[33 {x,y,z}], w, h }.  y points DOWN, x to the right of the image. */
 (function (root) {
@@ -1822,10 +1815,8 @@ window.FIT_DATA = {
   root.FitMotion = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
-
 </script>
-<script>
-/* FitQuest — "Kamp & Reruntuhan": side-scrolling apocalypse auto-battler with weapon skill trees (unlocked by muscle level). Sim (pure logic, testable) + View (canvas). */
+<script>/* FitQuest — "Kamp & Reruntuhan": side-scrolling apocalypse auto-battler with weapon skill trees (unlocked by muscle level). Sim (pure logic, testable) + View (canvas). */
 (function (root) {
   'use strict';
   const AV = root.FitAvatar || (typeof require !== 'undefined' ? require('./avatar.js') : null);
@@ -2252,10 +2243,8 @@ window.FIT_DATA = {
   root.FitGame = api;
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window !== 'undefined' ? window : globalThis);
-
 </script>
-<script>
-/* FitQuest — XP, level, streak, workout runner, camera form-check (MediaPipe Pose, on-device) */
+<script>/* FitQuest — XP, level, streak, workout runner, camera form-check (MediaPipe Pose, on-device) */
 (() => {
   'use strict';
   const D = window.FIT_DATA, DET = window.FitDetectors, FX = window.FitExAnim, FM = window.FitMotion, MU = window.FitMusic || { play() {}, duck() {}, setEnabled() {}, setVolume() {}, unlock() {} };
@@ -2495,24 +2484,25 @@ window.FIT_DATA = {
     if (!R) return;
     $('#camBox').style.display = R.camOn ? '' : 'none'; const rn = app.querySelector('.run'); if (rn) rn.classList.toggle('camon', !!R.camOn);
     $('#exStage').style.display = R.camOn ? 'none' : '';
-    if (!R.camOn && !exRaf) exLoop();
-    if (R.camOn) { cancelAnimationFrame(exRaf); exRaf = 0; if (!R.fsInit) { R.fsInit = true; const b = $('#camBox'), f = $('#camFs'); if (b && f) { b.classList.add('full'); f.textContent = '✕'; } } }
+    if (!exRaf) exLoop();
+    if (R.camOn) { if (!R.fsInit) { R.fsInit = true; const b = $('#camBox'), f = $('#camFs'); if (b && f) { b.classList.add('full'); f.textContent = '✕'; } } }
   }
   const exCache = new Map();
   function exLoop(ts) {
     exRaf = requestAnimationFrame(exLoop);
     if (!R) { cancelAnimationFrame(exRaf); exRaf = 0; return; }
-    const cv = $('#exv'); if (!cv) return;
+    const cv = R.camOn ? $('#exov') : $('#exv'); if (!cv) return;
     ts = ts || performance.now(); const dt = Math.min(0.1, (ts - (exLast || ts)) / 1000); exLast = ts;
     if (!R.paused) R.animT = (R.animT || 0) + dt;
     if (ts - (R.exDraw || 0) < 33) return; R.exDraw = ts;
     const it = R.tl[R.i], work = it && it.type === 'work';
+    const tgt = work ? it : it && it.next && it.next.type === 'work' ? it.next : null; // on rest / get-ready show the NEXT move
     const look = lookNow(), d = AV.dims(look);
-    const pose = FX.pose(work ? it.exercise : null, work ? it.level : null, work ? R.animT : R.animT * 0.8, d);
+    const pose = FX.pose(tgt ? tgt.exercise : null, tgt ? tgt.level : null, R.animT * (work ? 1 : 0.9), d);
     const key = JSON.stringify(pose, (k, v) => (typeof v === 'number' ? Math.round(v) : v));
     let B = exCache.get(key); if (!B) { if (exCache.size > 400) exCache.clear(); B = AV.side(look, pose); exCache.set(key, B); }
     AV.draw(cv, B, { pal: palOf() });
-    const hint = $('#exHint'); if (hint) hint.textContent = work ? 'Ikuti gerakan avatar' : it && it.type === 'rest' ? 'Tarik napas, atur posisi' : 'Siap-siap';
+    const hint = $('#exHint'); if (hint) hint.textContent = work ? 'Ikuti gerakan avatar' : tgt ? 'Berikutnya: ' + tgt.exName : 'Siap-siap';
   }
 
   async function startWorkout(key) {
@@ -2544,7 +2534,7 @@ window.FIT_DATA = {
       <h2 id="exname"></h2><div class="sub" id="exlevel"></div>
       <div class="chips" id="chips"></div>
       <div class="cam" id="camBox" style="--ar:3/4"><div class="mirror"><video id="v" playsinline muted></video><canvas id="cv"></canvas></div>
-        <div class="hud"><span id="hudReps"></span><span id="hudTime"></span><span id="hudName"></span><span id="hudForm" class="form"></span></div><button class="fsbtn" id="camFs" aria-label="Layar penuh">⛶</button><div class="camMsg" id="camMsg"></div></div>
+        <div class="hud"><span id="hudReps"></span><span id="hudTime"></span><span id="hudName"></span><span id="hudForm" class="form"></span></div><canvas id="exov" class="pix exov"></canvas><button class="fsbtn" id="camFs" aria-label="Layar penuh">⛶</button><div class="camMsg" id="camMsg"></div></div>
       <div class="exstage" id="exStage"><canvas id="exv" class="pix exv"></canvas><div class="exhint" id="exHint">Ikuti gerakan avatar</div></div>
       <div class="next" id="next"></div>
       <div class="ctrl"><button class="btn ghost" id="skip">Lewati ⏭</button></div>
@@ -3077,7 +3067,6 @@ window.FIT_DATA = {
   home();
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('sw.js').catch(() => {});
 })();
-
 </script>
 </body>
 </html>

@@ -238,24 +238,25 @@
     if (!R) return;
     $('#camBox').style.display = R.camOn ? '' : 'none'; const rn = app.querySelector('.run'); if (rn) rn.classList.toggle('camon', !!R.camOn);
     $('#exStage').style.display = R.camOn ? 'none' : '';
-    if (!R.camOn && !exRaf) exLoop();
-    if (R.camOn) { cancelAnimationFrame(exRaf); exRaf = 0; if (!R.fsInit) { R.fsInit = true; const b = $('#camBox'), f = $('#camFs'); if (b && f) { b.classList.add('full'); f.textContent = '✕'; } } }
+    if (!exRaf) exLoop();
+    if (R.camOn) { if (!R.fsInit) { R.fsInit = true; const b = $('#camBox'), f = $('#camFs'); if (b && f) { b.classList.add('full'); f.textContent = '✕'; } } }
   }
   const exCache = new Map();
   function exLoop(ts) {
     exRaf = requestAnimationFrame(exLoop);
     if (!R) { cancelAnimationFrame(exRaf); exRaf = 0; return; }
-    const cv = $('#exv'); if (!cv) return;
+    const cv = R.camOn ? $('#exov') : $('#exv'); if (!cv) return;
     ts = ts || performance.now(); const dt = Math.min(0.1, (ts - (exLast || ts)) / 1000); exLast = ts;
     if (!R.paused) R.animT = (R.animT || 0) + dt;
     if (ts - (R.exDraw || 0) < 33) return; R.exDraw = ts;
     const it = R.tl[R.i], work = it && it.type === 'work';
+    const tgt = work ? it : it && it.next && it.next.type === 'work' ? it.next : null; // on rest / get-ready show the NEXT move
     const look = lookNow(), d = AV.dims(look);
-    const pose = FX.pose(work ? it.exercise : null, work ? it.level : null, work ? R.animT : R.animT * 0.8, d);
+    const pose = FX.pose(tgt ? tgt.exercise : null, tgt ? tgt.level : null, R.animT * (work ? 1 : 0.9), d);
     const key = JSON.stringify(pose, (k, v) => (typeof v === 'number' ? Math.round(v) : v));
     let B = exCache.get(key); if (!B) { if (exCache.size > 400) exCache.clear(); B = AV.side(look, pose); exCache.set(key, B); }
     AV.draw(cv, B, { pal: palOf() });
-    const hint = $('#exHint'); if (hint) hint.textContent = work ? 'Ikuti gerakan avatar' : it && it.type === 'rest' ? 'Tarik napas, atur posisi' : 'Siap-siap';
+    const hint = $('#exHint'); if (hint) hint.textContent = work ? 'Ikuti gerakan avatar' : tgt ? 'Berikutnya: ' + tgt.exName : 'Siap-siap';
   }
 
   async function startWorkout(key) {
@@ -287,7 +288,7 @@
       <h2 id="exname"></h2><div class="sub" id="exlevel"></div>
       <div class="chips" id="chips"></div>
       <div class="cam" id="camBox" style="--ar:3/4"><div class="mirror"><video id="v" playsinline muted></video><canvas id="cv"></canvas></div>
-        <div class="hud"><span id="hudReps"></span><span id="hudTime"></span><span id="hudName"></span><span id="hudForm" class="form"></span></div><button class="fsbtn" id="camFs" aria-label="Layar penuh">⛶</button><div class="camMsg" id="camMsg"></div></div>
+        <div class="hud"><span id="hudReps"></span><span id="hudTime"></span><span id="hudName"></span><span id="hudForm" class="form"></span></div><canvas id="exov" class="pix exov"></canvas><button class="fsbtn" id="camFs" aria-label="Layar penuh">⛶</button><div class="camMsg" id="camMsg"></div></div>
       <div class="exstage" id="exStage"><canvas id="exv" class="pix exv"></canvas><div class="exhint" id="exHint">Ikuti gerakan avatar</div></div>
       <div class="next" id="next"></div>
       <div class="ctrl"><button class="btn ghost" id="skip">Lewati ⏭</button></div>
