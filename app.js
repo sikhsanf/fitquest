@@ -16,10 +16,10 @@
 
   /* ---------------- state ---------------- */
   const KEY = 'fitquest:v2';
-  const defaults = () => ({ name: '', scrap: 0, gear: { weapon: 'tangan', armor: 'none', owned: ['tangan', 'none'] }, cleared: {}, body: null, totalXp: 0, muscleXp: {}, streak: 0, best: 0, lastDay: null, sessions: 0, history: [], settings: { camera: true, voice: true, rest: 0, music: true, vol: 0.6 } });
+  const defaults = () => ({ name: '', scrap: 0, gear: { weapon: 'tangan', armor: 'none', owned: ['tangan', 'none'] }, cleared: {}, body: null, totalXp: 0, muscleXp: {}, streak: 0, best: 0, lastDay: null, sessions: 0, history: [], settings: { camera: true, voice: true, rest: 0, music: true, vol: 0.7 } });
   let S = load();
   const MOODTRACK = { ringan: 'lemes', normal: 'siap', berat: 'api' };
-  const applyMusic = () => { MU.setEnabled(S.settings.music !== false); MU.setVolume(S.settings.vol == null ? 0.6 : S.settings.vol); };
+  const applyMusic = () => { MU.setEnabled(S.settings.music !== false); MU.setVolume(S.settings.vol == null ? 0.7 : S.settings.vol); };
   function load() {
     try {
       const r = JSON.parse(localStorage.getItem(KEY));
@@ -50,9 +50,9 @@
     return { L, pct: L >= MAXL ? 1 : rem / gneed(L) };
   }
   const groupLevels = () => Object.fromEntries(GKEYS.map((k) => [k, gInfo(k).L]));
-  const lookOf = (b) => Object.assign({ hair: 'pendek', hairColor: AV.HAIR_COLORS[0], shirt: 'kaos', shirtColor: AV.SHIRT_COLORS[3] }, b || S.body || {});
+  const lookOf = (b) => Object.assign({ gender: 'm', hair: 'pendek', hairColor: AV.HAIR_COLORS[0], shirt: 'kaos', shirtColor: AV.SHIRT_COLORS[3] }, b || S.body || {});
   const palOf = (body) => { const l = lookOf(body); return AV.palette((body || S.body).skin, l.hairColor, l.shirtColor); };
-  const avatarBuf = (lv, body) => { body = body || S.body; const l = lookOf(body); return AV.build({ height: body.h, weight: body.w, skin: body.skin, hair: l.hair, shirt: l.shirt, stages: Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(lv[k])])) }); };
+  const avatarBuf = (lv, body) => { body = body || S.body; const l = lookOf(body); return AV.build({ height: body.h, weight: body.w, skin: body.skin, gender: l.gender, hair: l.hair, shirt: l.shirt, stages: Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(lv[k])])) }); };
   const titleOf = (L) => TITLES[Math.min(TITLES.length - 1, Math.floor((L - 1) / 3))];
   const fmt = (n) => Math.round(n).toLocaleString('id-ID');
   const mmss = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
@@ -198,7 +198,7 @@
       case 'loading': return '<span class="cs warn">📷 Menyiapkan kamera AI…</span><small>Pertama kali bisa 10–20 detik</small>';
       case 'on': return `<span class="cs on"><i class="dot"></i>KAMERA AI AKTIF</span><small>${R.seen ? 'Aku melihat badanmu ✓' : 'Belum melihat badanmu — masuk frame ya'}${it && it.type === 'work' && !judged ? ' · gerakan ini tidak dinilai' : ''}</small>`;
       case 'fail': return `<span class="cs bad">📷 KAMERA AI GAGAL</span><small>${R.camReason}</small><button class="btn mini" id="camRetry">Coba lagi</button>`;
-      default: return `<span class="cs off">📷 Kamera AI mati</span><small>${S.settings.camera ? 'Menu ini tidak punya gerakan yang dinilai kamera' : 'Dimatikan di pengaturan — tidak dapat bonus kamera'}</small>`;
+      default: return `<span class="cs off">📷 Kamera AI mati</span><small>${S.settings.camera ? (R.key === 'ringan' || R.key === 'berat' ? `Kamera AI baru menilai menu SIAP. Menu ${R.key === 'ringan' ? 'Lemes' : 'Membara'} pakai demo avatar, jadi kamera tidak dinyalakan.` : 'Menu ini tidak punya gerakan yang dinilai kamera') : 'Dimatikan di pengaturan — tidak dapat bonus kamera'}</small>`;
     }
   };
   function setCamStat() {
@@ -434,6 +434,7 @@
       <h1>${editing ? 'Ubah penampilanmu' : 'Siapa yang akan jadi pahlawan?'}</h1>
       <p class="mut">${editing ? 'Avatarmu ikut menyesuaikan.' : 'Ceritakan badanmu dulu. Nanti kugambar.'}</p>
       <div class="field"><label>Nama</label><input id="iname" class="txt" type="text" maxlength="14" placeholder="Nama pahlawanmu" value="${(S.name || '').replace(/[<>&\"]/g, '')}" autocomplete="off"></div>
+      <div class="field"><label>Gender</label><div class="opts gender" id="genders"><button data-v="m" class="${cur.gender !== 'f' ? 'on' : ''}">♂ Laki-laki</button><button data-v="f" class="${cur.gender === 'f' ? 'on' : ''}">♀ Perempuan</button></div></div>
       <div class="field"><label>Tinggi</label><div class="stepper"><button data-f="h" data-d="-1" aria-label="kurang">−</button><input id="ih" type="number" inputmode="numeric" min="120" max="220" value="${cur.h}"><span>cm</span><button data-f="h" data-d="1" aria-label="tambah">+</button></div></div>
       <div class="field"><label>Berat</label><div class="stepper"><button data-f="w" data-d="-1" aria-label="kurang">−</button><input id="iw" type="number" inputmode="numeric" min="30" max="200" value="${cur.w}"><span>kg</span><button data-f="w" data-d="1" aria-label="tambah">+</button></div></div>
       <div class="field"><label>Warna kulit</label>${swRow('skins', AV.SKINS, cur.skin)}</div>
@@ -446,13 +447,13 @@
     </div>`;
     const drawIcons = () => {
       const pal = AV.palette(cur.skin, cur.hairColor, cur.shirtColor);
-      app.querySelectorAll('#hairs canvas').forEach((c) => AV.draw(c, AV.hairIcon(c.dataset.ic), { pal }));
-      app.querySelectorAll('#shirts canvas').forEach((c) => AV.draw(c, AV.shirtIcon(c.dataset.ic), { pal }));
+      app.querySelectorAll('#hairs canvas').forEach((c) => AV.draw(c, AV.hairIcon(c.dataset.ic, cur.gender), { pal }));
+      app.querySelectorAll('#shirts canvas').forEach((c) => AV.draw(c, AV.shirtIcon(c.dataset.ic, cur.gender), { pal }));
     };
     const redraw = () => {
       drawIcons();
-      $('#scolf').style.display = cur.shirt === 'shirtless' ? 'none' : '';
-      const B = AV.build({ height: clampN(cur.h, 120, 220), weight: clampN(cur.w, 30, 200), skin: cur.skin, hair: cur.hair, shirt: cur.shirt, stages: editing && S.body ? Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(gInfo(k).L)])) : {} });
+      $('#scolf').style.display = cur.shirt === 'shirtless' && cur.gender !== 'f' ? 'none' : '';
+      const B = AV.build({ height: clampN(cur.h, 120, 220), weight: clampN(cur.w, 30, 200), skin: cur.skin, gender: cur.gender, hair: cur.hair, shirt: cur.shirt, stages: editing && S.body ? Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(gInfo(k).L)])) : {} });
       AV.draw($('#sil'), B, { pal: AV.palette(cur.skin, cur.hairColor, cur.shirtColor) });
     };
     redraw();
@@ -464,7 +465,7 @@
       read(); redraw(); beep(520, 0.03);
     }));
     const wire = (id, prop, attr) => app.querySelectorAll(`#${id} button`).forEach((b) => (b.onclick = () => { cur[prop] = b.dataset[attr]; app.querySelectorAll(`#${id} button`).forEach((x) => x.classList.toggle('on', x === b)); redraw(); beep(520, 0.03); }));
-    wire('skins', 'skin', 's'); wire('hcols', 'hairColor', 's'); wire('scols', 'shirtColor', 's'); wire('hairs', 'hair', 'v'); wire('shirts', 'shirt', 'v');
+    wire('genders', 'gender', 'v'); app.querySelectorAll('#genders button').forEach((b) => b.addEventListener('click', () => { const sw = cur.gender === 'f' ? ['pendek', 'panjang'] : ['panjang', 'pendek']; if (cur.hair === sw[0]) { cur.hair = sw[1]; app.querySelectorAll('#hairs button').forEach((x) => x.classList.toggle('on', x.dataset.v === sw[1])); redraw(); } })); wire('skins', 'skin', 's'); wire('hcols', 'hairColor', 's'); wire('scols', 'shirtColor', 's'); wire('hairs', 'hair', 'v'); wire('shirts', 'shirt', 'v');
     if (editing) $('#cancel').onclick = back || home;
     $('#go').onclick = () => {
       read();
@@ -472,7 +473,7 @@
       const nm = ($('#iname').value || '').trim().slice(0, 14);
       if (!editing && !nm) { toast('Isi nama pahlawanmu dulu ya'); $('#iname').focus(); return; }
       S.name = nm || S.name || 'Pahlawan';
-      S.body = { h: cur.h, w: cur.w, skin: cur.skin, hair: cur.hair, hairColor: cur.hairColor, shirt: cur.shirt, shirtColor: cur.shirtColor }; save();
+      S.body = { gender: cur.gender || 'm', h: cur.h, w: cur.w, skin: cur.skin, hair: cur.hair, hairColor: cur.hairColor, shirt: cur.shirt, shirtColor: cur.shirtColor }; save();
       if (editing) (back || home)(); else revealScreen();
     };
     window.scrollTo(0, 0);
@@ -554,7 +555,7 @@
     <div class="rdy">
       <div><button class="ibtn" id="back" aria-label="Kembali">‹</button></div>
       <div class="rdcenter"><canvas class="pix icbig m-${c.mood}" id="ic"></canvas><h1>${c.name}</h1><p class="cap">${c.push}</p><p class="mut">${c.tease}</p></div>
-      <label class="camchip"><input type="checkbox" id="tcam" ${S.settings.camera ? 'checked' : ''}><span>📷 Kamera AI cek gerakanmu<br><span class="mut small">Bonus XP kalau form-nya bagus</span></span></label>
+      <label class="camchip"><input type="checkbox" id="tcam" ${S.settings.camera ? 'checked' : ''}><span>📷 Kamera AI cek gerakanmu<br><span class="mut small">${buildTimeline(D.routines[c.key]).some((t) => t.cam) ? 'Bonus XP kalau form-nya bagus' : 'Menu ini belum dinilai kamera (baru menu SIAP). Pakai demo avatar.'}</span></span></label>
       <button class="btn big" id="start">MULAI SEKARANG</button>
     </div>`;
     drawPerson($('#ic'), c.mood);
@@ -582,7 +583,7 @@
     app.querySelectorAll('.zone').forEach((b) => (b.onclick = () => battle(G.ZONES.find((z) => z.id === b.dataset.z))));
     window.scrollTo(0, 0);
   }
-  const lookNow = () => { const b = S.body, l = lookOf(b); return { height: b.h, weight: b.w, hair: l.hair, shirt: l.shirt, armor: S.gear.armor, stages: Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(gInfo(k).L)])) }; };
+  const lookNow = () => { const b = S.body, l = lookOf(b); return { height: b.h, weight: b.w, gender: l.gender, hair: l.hair, shirt: l.shirt, armor: S.gear.armor, stages: Object.fromEntries(GKEYS.map((k) => [k, AV.stageOf(gInfo(k).L)])) }; };
   function battle(zone) {
     stopCamp(); MU.play('battle');
     const ps = myStats(), g = groupLevels();
@@ -710,7 +711,7 @@
     <section class="card tog"><label><span>📷 Bonus kamera</span><input type="checkbox" id="tcam" ${S.settings.camera ? 'checked' : ''}></label>
       <label><span>🔊 Suara pemandu</span><input type="checkbox" id="tvoice" ${S.settings.voice ? 'checked' : ''}></label></section>
     <section class="card tog"><label><span>🎵 Musik latar</span><input type="checkbox" id="tmusic" ${S.settings.music !== false ? 'checked' : ''}></label>
-      <div class="slrow"><span>Volume</span><b id="volv"></b></div><input type="range" id="vol" min="0" max="100" step="5" value="${Math.round((S.settings.vol == null ? 0.6 : S.settings.vol) * 100)}">
+      <div class="slrow"><span>Volume</span><b id="volv"></b></div><input type="range" id="vol" min="0" max="100" step="5" value="${Math.round((S.settings.vol == null ? 0.7 : S.settings.vol) * 100)}">
       <p class="mut small">Tiap suasana punya lagu sendiri: Lemes pelan, Siap ceria, Membara kencang, plus lagu khusus untuk game dan kamp.</p></section>
     <section class="card"><div class="slrow"><span>⏱ Waktu istirahat antar gerakan</span><b id="restv"></b></div>
       <input type="range" id="rest" min="0" max="90" step="5" value="${S.settings.rest || 0}"><p class="mut small">Geser ke 0 untuk mengikuti menu (ringan, normal, berat punya waktu sendiri).</p></section>

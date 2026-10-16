@@ -103,7 +103,7 @@
     for (const k in st) { T[k] = tierOf(st[k]); WD[k] = wdOf(st[k]); GL[k] = glOf(st[k]); }
 
     const legLen = 24 + Math.round(hF * 10), yAnk = 82, yHip = yAnk - legLen, yS = yHip - 26;
-    const hipH = 7 + Math.round(2 * bf) + Math.min(2, Math.floor(WD.paha / 2));
+    const hipH = 7 + (o.gender === 'f' ? 1 : 0) + Math.round(2 * bf) + Math.min(2, Math.floor(WD.paha / 2));
     const tw = hipH, tk = Math.max(4, tw - 3), thighLen = Math.round(legLen * 0.5), kneeY = yHip + thighLen;
     const tc = 4 + Math.round(bf) + Math.min(3, WD.kaki), ta = 4;
     const c0 = 31 - (tw - 1) / 2;
@@ -123,8 +123,9 @@
 
     // ---- torso geometry (arms are placed from the torso's widest point so they never fuse with it)
     const torsoH = yHip - yS;
-    const chestH = 8 + Math.round(2 * bf) + [0, 0, 1, 1, 2][Math.min(4, WD.dada)];
-    const waistH = Math.max(4, 6 + Math.round(2.5 * bf) + Math.round(belly * 4) - Math.min(2, Math.ceil(WD.core / 2))); // core training slims the waist
+    const fem = o.gender === 'f';
+    const chestH = 8 - (fem ? 1 : 0) + Math.round(2 * bf) + [0, 0, 1, 1, 2][Math.min(4, WD.dada)];
+    const waistH = Math.max(4, 6 - (o.gender === 'f' ? 1 : 0) + Math.round(2.5 * bf) + Math.round(belly * 4) - Math.min(2, Math.ceil(WD.core / 2))); // core training slims the waist
     const baseHalf = (y) => {
       const u = (y - (yS + 4)) / (torsoH - 4);
       let half = u < 0.55 ? lerp(chestH, waistH, u / 0.55) : lerp(waistH, hipH, (u - 0.55) / 0.45);
@@ -140,7 +141,7 @@
 
     const torsoCode = (y, d, half) => {
       if (y >= yHip - 3) return 'p';
-      if (shirt === 'shirtless') return 'k';
+      if (shirt === 'shirtless') return fem && y >= yS + 7 && y <= yS + 11 ? 't' : 'k'; // women: sports top
       if (shirt === 'kaos') { if (y <= yS + 1 && d <= 2) return 'k'; if (y === yS + 2 && d <= 1) return 'k'; return 't'; }
       if (y <= yS + 5) return d >= 3 && d <= 5 ? 't' : 'k';
       if (y <= yS + 8 && d <= 3) return 'k';
@@ -203,6 +204,7 @@
     const HM = (x, y) => { setL(x, y, true); setL(W - 1 - x, y, true); };
     const LL = (x, y) => setL(x, y, false);
     const HL = (x, y) => setL(x, y, true);
+    if (fem) { LM(29, yS + 10); LM(30, yS + 11); LM(28, yS + 10); }
     if (T.dada >= 1) for (let x = 32 - chestH + 2; x <= 30; x++) LM(x, yS + 10);
     if (T.dada >= 2) { for (let y = yS + 4; y <= yS + 10; y++) LM(31, y); for (let x = 27; x <= 30; x++) LM(x, yS + 3); }
     if (T.dada >= 3) { for (let x = 32 - chestH + 3; x <= 29; x++) HM(x, yS + 6); LM(32 - chestH + 2, yS + 9); }
@@ -245,7 +247,8 @@
   function person(mood, o) {
     o = o || {};
     const B = new Buf(32, 40);
-    const hair = o.hair || 'pendek', shirt = o.shirt || 'shirtless';
+    const hair = o.hair || 'pendek';
+    let shirt = o.shirt || 'shirtless'; if (o.gender === 'f' && shirt === 'shirtless') shirt = 'singlet';
     const lemes = mood === 'lemes', siap = mood === 'siap', api = mood === 'api';
     const P = (d, y, c) => B.setM(16 - d, y, c);
     const flameCol = (cx, y0, y1, wmax, phase) => {
@@ -378,8 +381,8 @@
   /* ================= side-view fighter (for the game), fully pose-driven ================= */
   function crop(B, x, y, w, h) { const C = new Buf(w, h); for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) C.set(i, j, B.get(x + i, y + j)); return C; }
   const AVG = { height: 170, weight: 62 };
-  function hairIcon(hair) { const B = build(Object.assign({ hair, shirt: 'shirtless', stages: {} }, AVG)); const m = B.meta; return crop(B, 20, m.yH - 5, 24, 22); }
-  function shirtIcon(shirt) { const B = build(Object.assign({ hair: 'botak', shirt, stages: {} }, AVG)); const m = B.meta; return crop(B, 14, m.yS - 4, 36, m.yHip - m.yS + 8); }
+  function hairIcon(hair, gender) { const B = build(Object.assign({ hair, gender, shirt: 'shirtless', stages: {} }, AVG)); const m = B.meta; return crop(B, 20, m.yH - 5, 24, 22); }
+  function shirtIcon(shirt, gender) { const B = build(Object.assign({ hair: 'botak', gender, shirt, stages: {} }, AVG)); const m = B.meta; return crop(B, 14, m.yS - 4, 36, m.yHip - m.yS + 8); }
 
   function dims(o) {
     o = o || {}; const hF = clamp(((o.height || 170) - 145) / 50);
@@ -398,10 +401,11 @@
     const thigh = Math.round(11 + hF * 3), shin = Math.round(11 + hF * 3), tl = Math.round(16 + hF * 2);
     const rad = (d) => (d * Math.PI) / 180;
     const pt = (x, y, a, L) => [x + Math.sin(rad(a)) * L, y + Math.cos(rad(a)) * L];
-    const wTh = 6 + Math.round(bf * 1.5) + Math.min(2, Math.floor(WD.paha / 2));
+    const fem = o.gender === 'f';
+    const wTh = 6 + (fem ? 1 : 0) + Math.round(bf * 1.5) + Math.min(2, Math.floor(WD.paha / 2));
     const wSh = 4 + Math.min(2, Math.floor(WD.kaki / 2)) + (bf > 0.5 ? 1 : 0);
     const wUa = 4 + Math.min(2, Math.floor(WD.lengan / 2)), wFa = 3 + (WD.lengan >= 3 ? 1 : 0);
-    const depth = 9 + Math.round(bf * 4) + Math.round(belly * 3) + [0, 0, 1, 1, 2, 3][Math.min(5, WD.dada)];
+    const depth = 8 + Math.round(bf * 3) + Math.round(belly * 3) + [0, 0, 0, 1, 1, 2][Math.min(5, WD.dada)];
     const lean = pose.lean || 0, bob = pose.bob || 0;
     const legF = pose.legF || [15, 5], legB = pose.legB || [-15, -20];
     const dy = (l) => thigh * Math.cos(rad(l[0])) + shin * Math.cos(rad(l[1]));
@@ -434,12 +438,13 @@
     const rw = Math.max(3, depth / 2 - 1 - Math.min(1.5, Math.ceil(WD.core / 2) * 0.7)), rc = depth / 2 + [0, 0, 0.3, 0.6, 1][Math.min(4, WD.bahu)];
     for (let i = 0; i <= 20; i++) {
       const t = i / 20, [cx, cy] = pt(hipX, hipY, 180 - lean, tl * t);
-      const r = rw + (rc - rw) * Math.min(1, t * 1.2) - (t > 0.55 && t < 0.8 ? 0.8 : 0);
+      const r = rw + (rc - rw) * Math.min(1, t * 1.2) - (t > 0.55 && t < 0.8 ? 0.8 : 0) - (t > 0.82 ? ((t - 0.82) / 0.18) * 2.4 : 0); // trapezius slopes into the neck
       const fx = 1 + (belly > 0 ? belly * 2.5 * Math.sin(Math.PI * Math.min(1, t * 1.4)) : 0);
-      const code = t < 0.22 ? 'p' : AR ? AR : shirt === 'shirtless' ? 'k' : 't';
-      const sh = (r - rw) * 0.8; // grow toward the chest only, keep the back line straight (no hump)
+      const code = t < 0.22 ? 'p' : AR ? AR : shirt === 'shirtless' ? (fem && t > 0.5 && t < 0.78 ? 't' : 'k') : 't';
+      const sh = (r - rw) * 0.9; // grow toward the chest only, keep the back line straight (no hump)
       B.circle(cx + fx + sh * Math.cos(rad(lean)), cy + sh * Math.sin(rad(lean)), r, code);
     }
+    if (fem) { const [bx, by] = pt(hipX, hipY, 180 - lean, tl * 0.66); B.circle(bx + depth / 2 - 0.3, by + 0.6, 2.4, AR ? AR : shirt === 'shirtless' ? 't' : shirt === 'singlet' || shirt === 'kaos' ? 't' : 'k'); }
     // neck + head
     const nk = pt(sPt[0], sPt[1], 180 - lean, 3);
     cap(sPt[0] + 1, sPt[1], nk[0] + 1, nk[1], 3, 'k');

@@ -1,4 +1,4 @@
-const CACHE = 'fitquest-v6';
+const CACHE = 'fitquest-v7';
 const SHELL = ['./', 'index.html', 'data.js', 'detectors.js', 'avatar.js', 'exanim.js', 'music.js', 'game.js', 'app.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', (e) => {
