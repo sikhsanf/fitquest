@@ -91,8 +91,12 @@ h3.q{text-align:center;font-size:17px;margin:4px 8px 16px;line-height:1.35}
 .phase{text-align:center;margin-top:14px;font-weight:800;letter-spacing:3px;font-size:13px;color:var(--mut)}.phase.work{color:var(--acc)}.phase.rest{color:var(--acc2)}
 .timer{text-align:center;font-size:84px;font-weight:800;line-height:1;margin:2px 0 6px;font-variant-numeric:tabular-nums;text-shadow:4px 4px 0 #000}
 .sub{text-align:center;color:var(--mut);font-size:14px;padding:0 8px}
-.cam{position:relative;height:56vh;height:56dvh;aspect-ratio:var(--ar,3/4);max-width:100%;margin:10px auto;overflow:hidden;background:#000;box-shadow:0 0 0 3px var(--line),0 0 0 6px var(--card2)}
-.run.camon .timer{font-size:56px;margin:0}.run.camon .sub,.run.camon .chips{display:none}.run.camon .cam{height:max(46vh,calc(100vh - 330px));height:max(46dvh,calc(100dvh - 330px));max-height:74dvh;margin:6px auto}
+.cam{position:relative;width:min(100%,calc(58dvh * var(--arn,1.333)));aspect-ratio:var(--ar,4/3);margin:10px auto;overflow:hidden;background:#000;box-shadow:0 0 0 3px var(--line),0 0 0 6px var(--card2)}
+.run.camon .timer{font-size:56px;margin:0}.run.camon .sub,.run.camon .chips{display:none}.run.camon .cam{width:min(100%,calc(max(46dvh,calc(100dvh - 330px)) * var(--arn,1.333)));margin:6px auto}
+.cam .fsbtn{position:absolute;top:6px;right:6px;z-index:3;width:34px;height:34px;background:rgba(0,0,0,.6);color:#fff;font-size:18px;box-shadow:none;padding:0}
+.hud #hudTime,.hud #hudName{display:none}.hud #hudTime{font-size:34px}
+.cam.full{position:fixed;inset:0;z-index:20;width:100vw;height:100dvh;aspect-ratio:auto;margin:0;box-shadow:none}.cam.full .mirror video,.cam.full .mirror canvas{object-fit:contain}.cam.full .hud #hudTime{display:inline}.cam.full .hud{flex-wrap:wrap;gap:4px}.cam.full .hud #hudName{display:block;width:100%;order:3;text-align:center;font-size:15px;letter-spacing:1px}.cam.full .fsbtn{top:calc(env(safe-area-inset-top,0px) + 8px)}
+.restbox{margin:10px 4px 6px}.restbox input[type=range]{width:100%}
 .mirror{position:absolute;inset:0;transform:scaleX(-1)}.mirror video,.mirror canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
 .hud{position:absolute;top:8px;left:8px;right:8px;display:flex;justify-content:space-between;font-weight:800;font-size:20px;text-shadow:0 2px 0 #000}
 .form{font-size:14px;padding:3px 10px;background:rgba(0,0,0,.6);color:var(--c,#fff)}
@@ -2185,13 +2189,14 @@ window.FIT_DATA = {
     const ex = D.exercises[st.exercise], lv = ex.levels[st.level];
     return { type: 'work', exercise: st.exercise, level: st.level, sec: st.sec, met: lv.met, exName: ex.name, lvName: lv.name, primary: ex.primary, secondary: ex.secondary, cam: DET.has(st.exercise, st.level) };
   }
-  function buildTimeline(rt) {
+  const restFor = (key) => { const b = (S.settings.restBy || {})[key]; return b != null ? b : D.routines[key].rest_sec; };
+  function buildTimeline(rt, restSec) {
     const work = [];
     (rt.warmup || []).forEach((s) => work.push(mkStep(s)));
     for (let r = 0; r < (rt.rounds || 1); r++) rt.steps.forEach((s) => work.push(mkStep(s)));
     (rt.cooldown || []).forEach((s) => work.push(mkStep(s)));
     const out = [];
-    work.forEach((w, i) => { out.push(w); const rs = S.settings.rest > 0 ? S.settings.rest : rt.rest_sec; if (i < work.length - 1 && rs > 0) out.push({ type: 'rest', sec: rs, next: work[i + 1] }); });
+    work.forEach((w, i) => { out.push(w); const rs = restSec != null ? restSec : rt.rest_sec; if (i < work.length - 1 && rs > 0) out.push({ type: 'rest', sec: rs, next: work[i + 1] }); });
     return out;
   }
   const baseXp = (met, sec) => Math.round((met * sec) / 6);
@@ -2229,10 +2234,28 @@ window.FIT_DATA = {
 
   /* ---------------- camera + pose ---------------- */
   const cam = { stream: null, landmarker: null, loading: null, raf: 0, lastT: 0, lastVideoTime: -1 };
+  /* offline-first pose engine: MediaPipe BlazePose (lite) bundled in ./mediapipe, wrapped to look like the Tasks API */
+  function loadScript(src) { return new Promise((res, rej) => { if (window.Pose) return res(); const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = () => rej(new Error('script ' + src)); document.head.appendChild(s); }); }
+  async function loadLocalPose() {
+    await loadScript('mediapipe/pose.js');
+    const pose = new window.Pose({ locateFile: (f) => 'mediapipe/' + f });
+    pose.setOptions({ modelComplexity: 0, smoothLandmarks: true, enableSegmentation: false, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+    let last = null, busy = false;
+    pose.onResults((r) => { last = r; });
+    await pose.initialize();
+    return {
+      local: true,
+      detectForVideo(v) {
+        if (!busy) { busy = true; pose.send({ image: v }).then(() => { busy = false; }, () => { busy = false; }); }
+        return last && last.poseLandmarks ? { landmarks: [last.poseLandmarks], worldLandmarks: [last.poseWorldLandmarks || last.poseLandmarks] } : { landmarks: [], worldLandmarks: [] };
+      },
+    };
+  }
   async function loadLandmarker() {
     if (cam.landmarker) return true;
     if (!cam.loading) {
       cam.loading = (async () => {
+        try { cam.landmarker = await loadLocalPose(); return true; } catch (e) { console.warn('local pose failed, trying CDN', e); }
         const mod = await import(VISION + '/vision_bundle.mjs');
         const fs = await mod.FilesetResolver.forVisionTasks(VISION + '/wasm');
         for (const delegate of ['GPU', 'CPU']) {
@@ -2249,13 +2272,13 @@ window.FIT_DATA = {
   async function startCamera(video) {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return { ok: false, reason: 'Browser ini tidak mengizinkan kamera di halaman ini. Butuh HTTPS, dan halaman harus dibuka langsung di Chrome/Safari — bukan di dalam preview atau aplikasi lain.' };
     try {
-      cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 480 }, height: { ideal: 640 } }, audio: false });
+      cam.stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false });
       video.srcObject = cam.stream; await video.play();
     } catch (e) {
       console.warn('camera', e); stopCamera(); const n = e && e.name;
       return { ok: false, reason: n === 'NotAllowedError' || n === 'SecurityError' ? 'Izin kamera ditolak atau diblokir. Buka halaman ini langsung di Chrome/Safari (bukan di dalam preview), lalu izinkan kamera.' : n === 'NotFoundError' ? 'Kamera tidak ditemukan di perangkat ini.' : n === 'NotReadableError' ? 'Kamera sedang dipakai aplikasi lain.' : 'Kamera gagal dibuka (' + (n || 'error') + ').' };
     }
-    try { await loadLandmarker(); } catch (e) { console.warn(e); stopCamera(); return { ok: false, reason: 'Model AI gagal diunduh. Cek koneksi internet (pertama kali butuh unduh sekitar 5 MB).' }; }
+    try { await loadLandmarker(); } catch (e) { console.warn(e); stopCamera(); return { ok: false, reason: 'Mesin AI kamera gagal dimuat. Muat ulang halaman, lalu coba lagi.' }; }
     return { ok: true };
   }
   function stopCamera() {
@@ -2274,7 +2297,7 @@ window.FIT_DATA = {
     try { res = cam.landmarker.detectForVideo(v, now); } catch (e) { return; }
     const img = res.landmarks && res.landmarks[0], world = res.worldLandmarks && res.worldLandmarks[0];
     const w = v.videoWidth, h = v.videoHeight;
-    if (cv.width !== w) { cv.width = w; cv.height = h; $('#camBox').style.setProperty('--ar', `${w}/${h}`); }
+    if (cv.width !== w) { cv.width = w; cv.height = h; $('#camBox').style.setProperty('--ar', `${w}/${h}`); $('#camBox').style.setProperty('--arn', (w / h).toFixed(3)); }
     const ctx = cv.getContext('2d'); ctx.clearRect(0, 0, w, h);
     let out = null;
     const it = R.tl[R.i];
@@ -2343,7 +2366,7 @@ window.FIT_DATA = {
     $('#camBox').style.display = R.camOn ? '' : 'none'; const rn = app.querySelector('.run'); if (rn) rn.classList.toggle('camon', !!R.camOn);
     $('#exStage').style.display = R.camOn ? 'none' : '';
     if (!R.camOn && !exRaf) exLoop();
-    if (R.camOn) { cancelAnimationFrame(exRaf); exRaf = 0; }
+    if (R.camOn) { cancelAnimationFrame(exRaf); exRaf = 0; if (!R.fsInit) { R.fsInit = true; const b = $('#camBox'), f = $('#camFs'); if (b && f) { b.classList.add('full'); f.textContent = '✕'; } } }
   }
   const exCache = new Map();
   function exLoop(ts) {
@@ -2364,7 +2387,7 @@ window.FIT_DATA = {
 
   async function startWorkout(key) {
     const rt = D.routines[key];
-    const tl = buildTimeline(rt);
+    const tl = buildTimeline(rt, restFor(key));
     MU.play(MOODTRACK[key] || 'siap');
     R = { key, rt, tl: [{ type: 'ready', sec: 5, next: tl[0] }, ...tl], i: -1, elapsed: 0, paused: false, results: [], camOn: false, det: null, before: { xp: S.totalXp, L: levelInfo(S.totalXp).L, m: Object.fromEntries(D.muscles.map((m) => [m, mLevel(S.muscleXp[m] || 0).L])), g: groupLevels() } };
     buildRunnerDom();
@@ -2391,11 +2414,12 @@ window.FIT_DATA = {
       <h2 id="exname"></h2><div class="sub" id="exlevel"></div>
       <div class="chips" id="chips"></div>
       <div class="cam" id="camBox" style="--ar:3/4"><div class="mirror"><video id="v" playsinline muted></video><canvas id="cv"></canvas></div>
-        <div class="hud"><span id="hudReps"></span><span id="hudForm" class="form"></span></div><div class="camMsg" id="camMsg"></div></div>
+        <div class="hud"><span id="hudReps"></span><span id="hudTime"></span><span id="hudName"></span><span id="hudForm" class="form"></span></div><button class="fsbtn" id="camFs" aria-label="Layar penuh">⛶</button><div class="camMsg" id="camMsg"></div></div>
       <div class="exstage" id="exStage"><canvas id="exv" class="pix exv"></canvas><div class="exhint" id="exHint">Ikuti gerakan avatar</div></div>
       <div class="next" id="next"></div>
       <div class="ctrl"><button class="btn ghost" id="skip">Lewati ⏭</button></div>
     </div>`;
+    $('#camFs').onclick = () => { const b = $('#camBox'); const on = b.classList.toggle('full'); $('#camFs').textContent = on ? '✕' : '⛶'; };
     const work = R.tl.filter((t) => t.type === 'work');
     $('#prog').innerHTML = work.map((_, i) => `<i data-i="${i}"></i>`).join('');
     $('#stop').onclick = () => {
@@ -2423,7 +2447,7 @@ window.FIT_DATA = {
     renderItem(it);
   }
   function renderItem(it) {
-    $('#phase').textContent = phaseLabel(it);
+    $('#phase').textContent = phaseLabel(it); { const hn = $('#hudName'); if (hn) hn.textContent = it.type === 'work' ? `${phaseLabel(it)} · ${it.exName}` : it.type === 'rest' ? `ISTIRAHAT · berikutnya ${it.next.exName}` : `SIAP-SIAP · ${(it.next || {}).exName || ''}`; }
     $('#phase').className = 'phase ' + it.type;
     const w = it.type === 'work' ? it : it.next;
     $('#exname').textContent = (EMOJI[w.exercise] || '') + ' ' + (it.type === 'work' ? w.exName : 'Berikutnya: ' + w.exName);
@@ -2435,7 +2459,7 @@ window.FIT_DATA = {
     if (R.camOn) { hud.textContent = it.type === 'work' && !w.cam ? 'Gerakan ini tidak dinilai kamera' : it.type === 'work' ? 'Mulai gerak!' : (view || ''); hud.classList.remove('bad'); $('#hudReps').textContent = ''; $('#hudForm').textContent = ''; }
     updateTimer();
   }
-  function updateTimer() { const it = R.tl[R.i]; if (!it) return; $('#timer').textContent = mmss(it.sec - R.elapsed); }
+  function updateTimer() { const it = R.tl[R.i]; if (!it) return; const t = mmss(it.sec - R.elapsed); $('#timer').textContent = t; const ht = $('#hudTime'); if (ht) ht.textContent = t; }
 
   function tick(dtOverride) {
     if (!R) return;
@@ -2618,7 +2642,7 @@ window.FIT_DATA = {
     </div>`;
     const pal = palOf(), box = $('#pg');
     const place = (st) => pointers(box, B, st);
-    if (first) AV.reveal($('#av'), B, { pal }, 1500, () => { $('#rvText').style.opacity = 1; place(true); beep(660, 0.1); setTimeout(() => beep(880, 0.15), 120); });
+    if (first) AV.reveal($('#av'), B, { pal }, 1500, () => { if (!$('#rvText')) return; $('#rvText').style.opacity = 1; place(true); beep(660, 0.1); setTimeout(() => beep(880, 0.15), 120); });
     else { AV.draw($('#av'), B, { pal }); place(false); }
     watchPointers(box, B);
     $('#look').onclick = () => onboarding(true, () => bodyView(first));
@@ -2679,11 +2703,16 @@ window.FIT_DATA = {
       <div><button class="ibtn" id="back" aria-label="Kembali">‹</button></div>
       <div class="rdcenter"><canvas class="pix icbig m-${c.mood}" id="ic"></canvas><h1>${c.name}</h1><p class="cap">${c.push}</p><p class="mut">${c.tease}</p></div>
       <label class="camchip"><input type="checkbox" id="tcam" ${S.settings.camera ? 'checked' : ''}><span>📷 Kamera AI cek gerakanmu<br><span class="mut small">${buildTimeline(D.routines[c.key]).some((t) => t.cam) ? 'Bonus XP kalau form-nya bagus' : 'Menu ini belum dinilai kamera (baru menu SIAP). Pakai demo avatar.'}</span></span></label>
+      <div class="restbox"><div class="slrow"><span>⏱ Istirahat antar gerakan</span><b id="restv"></b></div><input type="range" id="rest" min="0" max="90" step="5" value="${restFor(c.key)}"><p class="mut small" id="restnote"></p></div>
       <button class="btn big" id="start">MULAI SEKARANG</button>
     </div>`;
     drawPerson($('#ic'), c.mood);
     $('#back').onclick = home;
     $('#tcam').onchange = (e) => { S.settings.camera = e.target.checked; save(); };
+    const defRest = D.routines[c.key].rest_sec;
+    const restTxt = () => { const v = parseInt($('#rest').value, 10); $('#restv').textContent = v ? v + ' detik' : 'tanpa istirahat'; $('#restnote').innerHTML = v === defRest ? `Bawaan menu ${c.name}. Geser kalau mau diubah.` : `Bawaan menu ${c.name}: ${defRest ? defRest + ' detik' : 'tanpa istirahat'}. <a href="#" id="restreset">Kembalikan</a>`; const rr = $('#restreset'); if (rr) rr.onclick = (e) => { e.preventDefault(); $('#rest').value = defRest; saveRest(); }; };
+    const saveRest = () => { const v = parseInt($('#rest').value, 10) || 0; S.settings.restBy = S.settings.restBy || {}; if (v === defRest) delete S.settings.restBy[c.key]; else S.settings.restBy[c.key] = v; save(); restTxt(); };
+    restTxt(); $('#rest').oninput = restTxt; $('#rest').onchange = saveRest;
     $('#start').onclick = () => startWorkout(c.key);
     window.scrollTo(0, 0);
   }
@@ -2836,8 +2865,6 @@ window.FIT_DATA = {
     <section class="card tog"><label><span>🎵 Musik latar</span><input type="checkbox" id="tmusic" ${S.settings.music !== false ? 'checked' : ''}></label>
       <div class="slrow"><span>Volume</span><b id="volv"></b></div><input type="range" id="vol" min="0" max="100" step="5" value="${Math.round((S.settings.vol == null ? 0.7 : S.settings.vol) * 100)}">
       <p class="mut small">Tiap suasana punya lagu sendiri: Lemes pelan, Siap ceria, Membara kencang, plus lagu khusus untuk game dan kamp.</p></section>
-    <section class="card"><div class="slrow"><span>⏱ Waktu istirahat antar gerakan</span><b id="restv"></b></div>
-      <input type="range" id="rest" min="0" max="90" step="5" value="${S.settings.rest || 0}"><p class="mut small">Geser ke 0 untuk mengikuti menu (ringan, normal, berat punya waktu sendiri).</p></section>
     <section class="card"><div>${nameOf()}: <b>${S.body.h} cm · ${S.body.w} kg</b></div><p class="mut small">Latihan: ${S.sessions} · Streak terbaik: ${S.best} hari</p><button class="btn ghost" id="edit" style="margin-top:10px">Ubah nama, badan & penampilan</button></section>
     <h3 class="sec">Uji avatar (preview saja)</h3>
     <section class="card center"><canvas id="pv" class="pix" style="height:260px;width:auto"></canvas>
@@ -2848,8 +2875,6 @@ window.FIT_DATA = {
     const volTxt = () => { $('#volv').textContent = $('#vol').value + '%'; };
     volTxt(); $('#vol').oninput = () => { volTxt(); S.settings.vol = $('#vol').value / 100; MU.setVolume(S.settings.vol); }; $('#vol').onchange = save;
     $('#tmusic').onchange = (e) => { S.settings.music = e.target.checked; save(); MU.setEnabled(e.target.checked); };
-    const restTxt = () => { const v = parseInt($('#rest').value, 10); $('#restv').textContent = v ? v + ' detik' : 'ikuti menu'; };
-    restTxt(); $('#rest').oninput = restTxt; $('#rest').onchange = () => { S.settings.rest = parseInt($('#rest').value, 10) || 0; save(); };
     const prev = () => { const t = {}; app.querySelectorAll('input[data-g]').forEach((r) => { t[r.dataset.g] = parseInt(r.value, 10); $('#pv_' + r.dataset.g).textContent = `Lv ${r.value} · bentuk ${AV.stageOf(t[r.dataset.g])}/${AV.MAX_STAGE}`; }); AV.draw($('#pv'), avatarBuf(t), { pal }); };
     prev(); app.querySelectorAll('input[data-g]').forEach((r) => (r.oninput = prev));
     $('#back').onclick = home;
